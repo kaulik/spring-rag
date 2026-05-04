@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG Assistant</title>
+  <link rel="icon" href="data:,">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1e40af;
+      color: white;
+      padding: 1rem 2rem;
+      font-size: 1.2rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+
+    .card-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #1e40af;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 1.1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.83rem;
+      font-weight: 500;
+      color: #475569;
+      margin-top: 0.9rem;
+      margin-bottom: 0.35rem;
+    }
+    label:first-of-type { margin-top: 0; }
+
+    textarea, input[type="text"] {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 0.6rem 0.8rem;
+      font-size: 0.93rem;
+      font-family: inherit;
+      resize: vertical;
+      background: #f8fafc;
+      transition: border-color .15s, background .15s;
+    }
+    textarea:focus, input[type="text"]:focus {
+      outline: none;
+      border-color: #3b82f6;
+      background: #fff;
+    }
+
+    .row {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 0.52rem 1.2rem;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.88rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+      white-space: nowrap;
+    }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .btn-primary   { background: #16a34a; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #15803d; }
+
+    .btn-secondary { background: #e2e8f0; color: #334155; }
+    .btn-secondary:hover:not(:disabled) { background: #cbd5e1; }
+
+    .status {
+      font-size: 0.8rem;
+      color: #64748b;
+      flex: 1;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .tab {
+      padding: 0.4rem 1rem;
+      border-radius: 999px;
+      border: 1.5px solid #cbd5e1;
+      background: white;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      color: #475569;
+      transition: background .12s, color .12s;
+    }
+    .tab.active {
+      background: #16a34a;
+      color: white;
+      border-color: #16a34a;
+    }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Answer */
+    .answer-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 1rem;
+      white-space: pre-wrap;
+      font-size: 0.93rem;
+      line-height: 1.65;
+      min-height: 3.5rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #dbeafe;
+      color: #1e40af;
+      border-radius: 999px;
+      padding: 0.1rem 0.55rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      margin-left: 0.45rem;
+      vertical-align: middle;
+    }
+
+    .sources-list {
+      margin-top: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .source-item {
+      background: #f1f5f9;
+      border-radius: 8px;
+      padding: 0.65rem 0.9rem;
+      font-size: 0.83rem;
+    }
+    .source-item strong {
+      display: block;
+      color: #0f172a;
+      margin-bottom: 0.25rem;
+    }
+    .source-item code {
+      color: #475569;
+      white-space: pre-wrap;
+      font-size: 0.78rem;
+      font-family: ui-monospace, monospace;
+    }
+
+    .info-pill {
+      background: #dcfce7;
+      color: #166534;
+      border-radius: 999px;
+      padding: 0.15rem 0.65rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #94a3b8;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: 5px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>🔍 RAG Assistant — Spring Boot</header>
+
+<div class="container">
+
+  <!-- Query card with tabs -->
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('ctx')">Context + Question</button>
+      <button class="tab" onclick="switchTab('stored')">Query Stored Docs</button>
+    </div>
+
+    <!-- Panel A: paste text + ask -->
+    <div id="panel-ctx" class="panel active">
+      <div class="card-title">Paste context &amp; ask a question</div>
+
+      <label for="ctx-source">Source label <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
+      <input type="text" id="ctx-source"
+             placeholder="e.g. meeting-notes, patient-summary" />
+
+      <label for="ctx-text">Context text</label>
+      <textarea id="ctx-text" rows="9"
+        placeholder="Paste the full text you want the model to search over..."></textarea>
+
+      <label for="ctx-query">Your question</label>
+      <textarea id="ctx-query" rows="2"
+        placeholder="What would you like to know about the text above?"></textarea>
+
+      <div class="row">
+        <button class="btn-primary" id="ctx-btn" onclick="runContextQuery()">
+          Ingest &amp; Ask
+        </button>
+        <span class="status" id="ctx-status"></span>
+      </div>
+    </div>
+
+    <!-- Panel B: stored docs -->
+    <div id="panel-stored" class="panel">
+      <div class="card-title">Query already-stored documents</div>
+
+      <label for="stored-query">Your question</label>
+      <textarea id="stored-query" rows="3"
+        placeholder="Ask anything about documents already in Weaviate..."></textarea>
+
+      <div class="row">
+        <button class="btn-primary" id="stored-btn" onclick="runStoredQuery()">
+          Run Query
+        </button>
+        <span class="status" id="stored-status"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Answer card (hidden until a query runs) -->
+  <div class="card" id="answer-card" style="display:none;">
+    <div class="card-title">
+      Answer
+      <span id="chunks-pill" class="info-pill" style="display:none;"></span>
+    </div>
+    <div class="answer-box" id="answer-text"></div>
+
+    <div id="sources-section" style="margin-top:1.25rem; display:none;">
+      <div class="card-title" style="margin-bottom:.6rem;">
+        Sources <span class="badge" id="source-count">0</span>
+      </div>
+      <div class="sources-list" id="sources-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const API = '';   // same origin; change to 'http://localhost:8080' if CORS needed
+
+  // --------------------------------------------------------------------------
+  // Tab switching
+  // --------------------------------------------------------------------------
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      t.classList.toggle('active',
+        (name === 'ctx'    && i === 0) ||
+        (name === 'stored' && i === 1));
+    });
+    document.getElementById('panel-ctx').classList.toggle('active', name === 'ctx');
+    document.getElementById('panel-stored').classList.toggle('active', name === 'stored');
+  }
+
+  // --------------------------------------------------------------------------
+  // Helpers
+  // --------------------------------------------------------------------------
+  function setStatus(id, html) {
+    document.getElementById(id).innerHTML = html;
+  }
+
+  function loading(statusId) {
+    return '<span class="spinner"></span>Running…';
+  }
+
+  function showAnswer(data) {
+    const card      = document.getElementById('answer-card');
+    const answerEl  = document.getElementById('answer-text');
+    const srcSection = document.getElementById('sources-section');
+    const srcList   = document.getElementById('sources-list');
+    const badge     = document.getElementById('source-count');
+    const chunksPill = document.getElementById('chunks-pill');
+
+    // Answer text
+    answerEl.textContent = data.answer || '(no answer)';
+    card.style.display = 'block';
+
+    // Ingested chunks pill
+    if (data.ingestedChunks != null && data.ingestedChunks > 0) {
+      chunksPill.textContent = data.ingestedChunks + ' chunks ingested';
+      chunksPill.style.display = 'inline-block';
+    } else {
+      chunksPill.style.display = 'none';
+    }
+
+    // Sources
+    const sources = Array.isArray(data.sources) ? data.sources : [];
+    badge.textContent = sources.length;
+
+    if (sources.length > 0) {
+      srcSection.style.display = 'block';
+      srcList.innerHTML = '';
+      sources.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'source-item';
+        const title   = escHtml(s.source || 'unknown');
+        const preview = escHtml((s.text || s.preview || '').substring(0, 500));
+        div.innerHTML = '<strong>' + title + '</strong><code>' + preview + '</code>';
+        srcList.appendChild(div);
+      });
+    } else {
+      srcSection.style.display = 'none';
+    }
+
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+  }
+
+  // --------------------------------------------------------------------------
+  // Context + question
+  // --------------------------------------------------------------------------
+  async function runContextQuery() {
+    const query       = document.getElementById('ctx-query').value.trim();
+    const contextText = document.getElementById('ctx-text').value.trim();
+    const source      = document.getElementById('ctx-source').value.trim() || 'frontend';
+
+    if (!query)       { setStatus('ctx-status', '⚠ Enter a question.'); return; }
+    if (!contextText) { setStatus('ctx-status', '⚠ Paste some context text first.'); return; }
+
+    const btn = document.getElementById('ctx-btn');
+    btn.disabled = true;
+    setStatus('ctx-status', loading());
+    document.getElementById('answer-card').style.display = 'none';
+
+    try {
+      const resp = await fetch(API + '/api/query-with-context', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ query, contextText, source }),
+      });
+
+      if (!resp.ok) throw new Error('HTTP ' + resp.status + ' — ' + await resp.text());
+      const data = await resp.json();
+
+      const info = data.ingestedChunks != null
+        ? `Done &nbsp;·&nbsp; ${data.ingestedChunks} chunks ingested`
+        : 'Done.';
+      setStatus('ctx-status', info);
+      showAnswer(data);
+    } catch (err) {
+      setStatus('ctx-status', '❌ ' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Stored docs query
+  // --------------------------------------------------------------------------
+  async function runStoredQuery() {
+    const query = document.getElementById('stored-query').value.trim();
+    if (!query) { setStatus('stored-status', '⚠ Enter a question.'); return; }
+
+    const btn = document.getElementById('stored-btn');
+    btn.disabled = true;
+    setStatus('stored-status', loading());
+    document.getElementById('answer-card').style.display = 'none';
+
+    try {
+      const resp = await fetch(API + '/api/query', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ query }),
+      });
+
+      if (!resp.ok) throw new Error('HTTP ' + resp.status + ' — ' + await resp.text());
+      const data = await resp.json();
+      setStatus('stored-status', 'Done.');
+      showAnswer(data);
+    } catch (err) {
+      setStatus('stored-status', '❌ ' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>

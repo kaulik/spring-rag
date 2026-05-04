@@ -1,0 +1,17 @@
+# Test profile – override with safe no-op values so the context loads
+# without a live Ollama / Weaviate instance.
+rag:
+  ollama:
+    base-url: http://localhost:11434
+    model: llama3.1
+  weaviate:
+    base-url: http://localhost:8383
+    collection: testCollection
+    text-field: text
+  retrieval:
+    top-k: 10
+    hybrid-alpha: 0.5
+    rerank-top-k: 5
+  chunking:
+    sentences-per-chunk: 3
+    token-overlap: 20
