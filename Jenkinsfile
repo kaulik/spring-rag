@@ -12,6 +12,7 @@ pipeline {
 
     environment {
         FULL_IMAGE = "myapp:${params.BUILD_ID}"
+        DOCKERFILE_PATH = "/root/jenkins/Dockerfile"   // host path, mounted into Jenkins container
     }
     
     tools {
@@ -25,6 +26,7 @@ pipeline {
             steps {
                 echo "BUILD_ID : ${params.BUILD_ID}"
                 sh 'docker info'   // verify socket access from inside Jenkins container
+                sh "ls ${DOCKERFILE_PATH}"   // confirm Dockerfile is accessible
             }
         }
         
@@ -55,6 +57,7 @@ pipeline {
             steps {
                 sh """
                     docker build \
+                      -f ${DOCKERFILE_PATH} \
                       --build-arg BUILD_ID=${params.BUILD_ID} \
                       -t myapp:${params.BUILD_ID} \
                       -t myapp:latest \
@@ -89,7 +92,14 @@ pipeline {
     }
 
     post {
-        success { echo 'Build succeeded ✅' }
-        failure { echo 'Build failed ❌' }
+        always {
+            sh 'docker image prune -f || true'
+        }
+        success {
+            echo "Deployed myapp:${params.BUILD_ID} successfully."
+        }
+        failure {
+            echo "Build failed ❌"
+        }
     }
 }
