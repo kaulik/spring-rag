@@ -1,38 +1,29 @@
 pipeline {
     agent any
-    
-    // ── Build parameter exposed in Jenkins UI ──────────────────────────────────
+
     parameters {
         string(
             name: 'BUILD_ID',
-            defaultValue: "${env.BUILD_NUMBER}",   // Auto-populated from Jenkins build number
+            defaultValue: "${env.BUILD_NUMBER}",
             description: 'Docker image tag / build identifier'
         )
     }
 
     environment {
         FULL_IMAGE = "myapp:${params.BUILD_ID}"
-        DOCKERFILE_PATH = "/root/jenkins/Dockerfile"   // host path, mounted into Jenkins container
     }
-    
+
     tools {
-        // Names must match what's configured in Jenkins → Manage Jenkins → Tools
-        maven 'Maven3'
-        jdk   'JDK17'
+        maven 'Maven'
     }
 
     stages {
-         stage('Validate') {
+
+        stage('Validate') {
             steps {
                 echo "BUILD_ID : ${params.BUILD_ID}"
-                sh 'docker info'   // verify socket access from inside Jenkins container
-                sh "ls ${DOCKERFILE_PATH}"   // confirm Dockerfile is accessible
-            }
-        }
-        
-        stage('Checkout') {
-            steps {
-                checkout scm
+                sh 'docker info'
+                sh 'ls -la'
             }
         }
 
@@ -53,11 +44,17 @@ pipeline {
             }
         }
 
-         stage('Docker Build') {
+        stage('Package') {
+            steps {
+                sh 'mvn -B package -DskipTests'
+                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            }
+        }
+
+        stage('Docker Build') {
             steps {
                 sh """
                     docker build \
-                      -f ${DOCKERFILE_PATH} \
                       --build-arg BUILD_ID=${params.BUILD_ID} \
                       -t myapp:${params.BUILD_ID} \
                       -t myapp:latest \
@@ -65,28 +62,19 @@ pipeline {
                 """
             }
         }
- 
+
         stage('Deploy') {
             steps {
-                // Stop existing app container if running, then start new one
-                // Jenkins talks to HOST Docker via the mounted socket
                 sh """
                     docker stop myapp || true
                     docker rm   myapp || true
                     docker run -d \
                       --name myapp \
-                      -p 8585:8080 \
+                      -p 9090:8080 \
                       -e BUILD_ID=${params.BUILD_ID} \
                       --restart unless-stopped \
                       myapp:${params.BUILD_ID}
                 """
-            }
-        }
-
-        stage('Package') {
-            steps {
-                sh 'mvn -B package -DskipTests'
-                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             }
         }
     }
@@ -96,7 +84,7 @@ pipeline {
             sh 'docker image prune -f || true'
         }
         success {
-            echo "Deployed myapp:${params.BUILD_ID} successfully."
+            echo "Deployed myapp:${params.BUILD_ID} successfully ✅"
         }
         failure {
             echo "Build failed ❌"
