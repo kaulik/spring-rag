@@ -70,7 +70,7 @@ pipeline {
                     docker rm   myapp || true
                     docker run -d \
                       --name myapp \
-                      -p 9090:8080 \
+                      -p 8585:8080 \
                       -e BUILD_ID=${params.BUILD_ID} \
                       --restart unless-stopped \
                       myapp:${params.BUILD_ID}
