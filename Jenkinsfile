@@ -71,6 +71,9 @@ pipeline {
                     docker run -d \
                       --name myapp \
                       -p 8585:8080 \
+                      --add-host=host.docker.internal:host-gateway \
+                      --add-host=ollama:host-gateway \
+                      --add-host=weaviate:host-gateway \
                       -e BUILD_ID=${params.BUILD_ID} \
                       --restart unless-stopped \
                       myapp:${params.BUILD_ID}
