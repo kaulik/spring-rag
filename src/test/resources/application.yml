@@ -3,7 +3,8 @@
 rag:
   ollama:
     base-url: http://localhost:11434
-    model: llama3.1
+    embedding-model: nomic-embed-text
+    chat-model: llama3.2:3b
   weaviate:
     base-url: http://localhost:8383
     collection: testCollection

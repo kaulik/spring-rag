@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,11 +25,13 @@ public class OllamaClient {
 
     private final RagProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     public List<Double> embed(String text) {
         String url = props.getOllama().getBaseUrl() + "/api/embeddings";
-        String model = props.getOllama().getModel();
+        String model = props.getOllama().getEmbeddingModel();
         log.debug("[Ollama] embed() → POST {} | model={} | textLen={}", url, model, text.length());
         try {
             ObjectNode body = objectMapper.createObjectNode()
@@ -38,6 +41,7 @@ public class OllamaClient {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(props.getOllama().getTimeoutSeconds()))
                     .POST(HttpRequest.BodyPublishers.ofString(
                             objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
                     .build();
@@ -70,11 +74,20 @@ public class OllamaClient {
     }
 
     public String chat(String userPrompt) {
+        return chat(null, userPrompt);
+    }
+
+    public String chat(String systemPrompt, String userPrompt) {
         String url = props.getOllama().getBaseUrl() + "/api/chat";
-        String model = props.getOllama().getModel();
+        String model = props.getOllama().getChatModel();
         log.debug("[Ollama] chat() → POST {} | model={} | promptLen={}", url, model, userPrompt.length());
         try {
             ArrayNode messages = objectMapper.createArrayNode();
+            if (systemPrompt != null && !systemPrompt.isBlank()) {
+                messages.add(objectMapper.createObjectNode()
+                        .put("role", "system")
+                        .put("content", systemPrompt));
+            }
             messages.add(objectMapper.createObjectNode()
                     .put("role", "user")
                     .put("content", userPrompt));
@@ -87,6 +100,7 @@ public class OllamaClient {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(props.getOllama().getTimeoutSeconds()))
                     .POST(HttpRequest.BodyPublishers.ofString(
                             objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
                     .build();

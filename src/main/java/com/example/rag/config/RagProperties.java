@@ -22,7 +22,10 @@ public class RagProperties {
         @NotBlank
         private String baseUrl = "http://host.docker.internal:11434";
         @NotBlank
-        private String model = "llama3.1";
+        private String embeddingModel = "nomic-embed-text";
+        @NotBlank
+        private String chatModel = "llama3.2:3b";
+        private int timeoutSeconds = 60;
     }
 
     @Data

@@ -1,8 +1,8 @@
 server:
   port: 8080
   error:
-    include-message: always
-    include-exception: true
+    include-message: never
+    include-exception: false
   tomcat:
     accesslog:
       enabled: true
@@ -12,18 +12,20 @@ server:
       pattern: '%t "%r" %s %b %D ms'
 logging:
   level:
-    com.example.rag: DEBUG
-    org.springframework.web: DEBUG
+    com.example.rag: INFO
+    org.springframework.web: WARN
+
 rag:
   ollama:
-    base-url: http://host.docker.internal:11434
-    embedding-model: nomic-embed-text
-    chat-model: llama3.2:3b
+    base-url: ${RAG_OLLAMA_BASE_URL:http://host.docker.internal:11434}
+    embedding-model: ${RAG_OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
+    chat-model: ${RAG_OLLAMA_CHAT_MODEL:llama3.2:3b}
+    timeout-seconds: ${RAG_OLLAMA_TIMEOUT_SECONDS:60}
   weaviate:
-    base-url: http://host.docker.internal:8383
-    collection: PyAgentRAGDocuments
+    base-url: ${RAG_WEAVIATE_BASE_URL:http://host.docker.internal:8383}
+    collection: ${RAG_WEAVIATE_COLLECTION:PyAgentRAGDocuments}
     text-field: text
-    api-key: 18b2272a7b66b3f213e72652356c1cf0b21d5c3f4081fe224756c12ed49f6fd5
+    api-key: ${WEAVIATE_API_KEY:}
   retrieval:
     top-k: 10
     hybrid-alpha: 0.5
@@ -31,3 +33,12 @@ rag:
   chunking:
     sentences-per-chunk: 3
     token-overlap: 8
+
+guardrails:
+  api-key: ${API_KEY:changeme}
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8282,http://localhost:3000}
+  rate-limit:
+    requests-per-minute: ${RATE_LIMIT_RPM:30}
+  input:
+    max-query-length: ${MAX_QUERY_LENGTH:1000}
+    max-context-length: ${MAX_CONTEXT_LENGTH:50000}

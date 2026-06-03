@@ -1,6 +1,5 @@
 FROM eclipse-temurin:17-jre-alpine
 
-#LABEL maintainer="your-team@example.com"
 LABEL description="JRE application image"
 
 ARG BUILD_ID=local

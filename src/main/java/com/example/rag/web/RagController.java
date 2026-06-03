@@ -1,5 +1,6 @@
 package com.example.rag.web;
 
+import com.example.rag.security.InputGuardrailService;
 import com.example.rag.service.RagService;
 import com.example.rag.service.RagService.RagResult;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
@@ -26,6 +27,7 @@ import java.util.List;
 public class RagController {
 
     private final RagService ragService;
+    private final InputGuardrailService inputGuardrailService;
 
     // -------------------------------------------------------------------------
     // Request / Response models
@@ -65,7 +67,8 @@ public class RagController {
      */
     @PostMapping("/query")
     public ResponseEntity<QueryResponse> query(@Valid @RequestBody QueryRequest req) {
-        log.info("POST /api/query — query='{}'", req.getQuery());
+        inputGuardrailService.validateQuery(req.getQuery());
+        log.info("POST /api/query — queryLen={}", req.getQuery().length());
         RagResult result = ragService.answerQuestion(req.getQuery());
 
         QueryResponse resp = new QueryResponse();
@@ -82,9 +85,10 @@ public class RagController {
     public ResponseEntity<QueryResponse> queryWithContext(
             @Valid @RequestBody QueryWithContextRequest req) {
 
-        log.info("POST /api/query-with-context — source='{}', contextLen={}, query='{}'",
-                req.getSource(), req.getContextText() != null ? req.getContextText().length() : 0,
-                req.getQuery());
+        inputGuardrailService.validateQuery(req.getQuery());
+        inputGuardrailService.validateContextText(req.getContextText());
+        log.info("POST /api/query-with-context — source='{}', contextLen={}, queryLen={}",
+                req.getSource(), req.getContextText().length(), req.getQuery().length());
 
         String source = (req.getSource() == null || req.getSource().isBlank())
                 ? "frontend"
