@@ -10,16 +10,15 @@ server:
       prefix: spring-rag-access
       suffix: .log
       pattern: '%t "%r" %s %b %D ms'
-
 logging:
   level:
     com.example.rag: DEBUG
     org.springframework.web: DEBUG
-
 rag:
   ollama:
     base-url: http://host.docker.internal:11434
-    model: llama3.2:3b
+    embedding-model: nomic-embed-text
+    chat-model: llama3.2:3b
   weaviate:
     base-url: http://host.docker.internal:8383
     collection: PyAgentRAGDocuments
