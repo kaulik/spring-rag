@@ -212,6 +212,13 @@
 
 <div class="container">
 
+  <!-- API Key card -->
+  <div class="card">
+    <div class="card-title">API Key</div>
+    <label for="api-key">X-API-Key</label>
+    <input type="password" id="api-key" placeholder="Enter your API key" />
+  </div>
+
   <!-- Query card with tabs -->
   <div class="card">
     <div class="tabs">
@@ -371,9 +378,10 @@
     document.getElementById('answer-card').style.display = 'none';
 
     try {
+      const apiKey = document.getElementById('api-key').value.trim();
       const resp = await fetch(API + '/api/query-with-context', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
         body:    JSON.stringify({ query, contextText, source }),
       });
 
@@ -405,9 +413,10 @@
     document.getElementById('answer-card').style.display = 'none';
 
     try {
+      const apiKey = document.getElementById('api-key').value.trim();
       const resp = await fetch(API + '/api/query', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
         body:    JSON.stringify({ query }),
       });
 
