@@ -65,13 +65,20 @@ pipeline {
 
         stage('Deploy') {
             steps {
+								withCredentials([
+                    string(
+                        credentialsId: 'WEAVIATE_API_KEY',
+                        variable: 'WEAVIATE_API_KEY'
+                    )
+                ]) {
                 sh """
                     docker stop myapp || true
                     docker rm   myapp || true
                     docker run -d \
                       --name myapp \
                       -p 8585:8080 \
-                      --add-host=host.docker.internal:host-gateway \
+											-e WEAVIATE_API_KEY=$WEAVIATE_API_KEY \
+	                    --add-host=host.docker.internal:host-gateway \
                       --add-host=ollama:host-gateway \
                       --add-host=weaviate:host-gateway \
                       -e BUILD_ID=${params.BUILD_ID} \
@@ -79,6 +86,7 @@ pipeline {
                       myapp:${params.BUILD_ID}
                 """
             }
+						}
         }
     }
 
