@@ -62,7 +62,11 @@ public class OllamaClient {
             for (JsonNode n : emb) {
                 result.add(n.asDouble());
             }
-            log.debug("[Ollama] embed() ← vector dims={}", result.size());
+            if (result.isEmpty()) {
+                log.error("[Ollama] embed() returned empty vector — response: {}", response.body());
+                throw new RuntimeException("Ollama returned an empty embedding vector for model=" + model);
+            }
+            log.info("[Ollama] embed() ← vector dims={}", result.size());
             return result;
 
         } catch (RuntimeException re) {

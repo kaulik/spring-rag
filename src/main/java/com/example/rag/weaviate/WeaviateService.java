@@ -131,7 +131,26 @@ public class WeaviateService {
             batchBody.set("objects", objectsArray);
 
             String responseBody = post(url, objectMapper.writeValueAsString(batchBody));
-            log.info("[Weaviate] ingestChunks() ← success | ingested={} responseLen={}", chunks.size(), responseBody.length());
+
+            // Parse per-object results — Weaviate returns 200 OK even when individual objects fail
+            int succeeded = 0, failed = 0;
+            JsonNode batchResults = objectMapper.readTree(responseBody);
+            if (batchResults.isArray()) {
+                for (JsonNode obj : batchResults) {
+                    String status = obj.path("result").path("status").asText("UNKNOWN");
+                    if ("SUCCESS".equalsIgnoreCase(status)) {
+                        succeeded++;
+                    } else {
+                        failed++;
+                        JsonNode errors = obj.path("result").path("errors").path("error");
+                        log.error("[Weaviate] ingestChunks() object FAILED — status={} errors={}", status, errors);
+                    }
+                }
+            }
+            log.info("[Weaviate] ingestChunks() ← succeeded={} failed={} total={}", succeeded, failed, chunks.size());
+            if (succeeded == 0 && failed > 0) {
+                throw new RuntimeException("All " + failed + " objects failed to insert into Weaviate — check logs for errors");
+            }
 
         } catch (RuntimeException re) {
             log.error("[Weaviate] ingestChunks() failed: {}", re.getMessage(), re);
@@ -195,8 +214,19 @@ public class WeaviateService {
             String responseBody = post(url, objectMapper.writeValueAsString(body));
             log.debug("[Weaviate] hybridSearch() ← raw response: {}", responseBody);
 
-            JsonNode root    = objectMapper.readTree(responseBody);
+            JsonNode root = objectMapper.readTree(responseBody);
+
+            // Surface any GraphQL-level errors before attempting to read results
+            JsonNode errors = root.path("errors");
+            if (!errors.isMissingNode() && errors.isArray() && !errors.isEmpty()) {
+                log.error("[Weaviate] hybridSearch() GraphQL errors: {}", errors);
+                throw new RuntimeException("Weaviate GraphQL errors: " + errors);
+            }
+
             JsonNode results = root.path("data").path("Get").path(collection);
+            if (results.isMissingNode()) {
+                log.warn("[Weaviate] hybridSearch() response missing data.Get.{} — full response: {}", collection, responseBody);
+            }
 
             List<RetrievedDoc> docs = new ArrayList<>();
             for (JsonNode n : results) {
