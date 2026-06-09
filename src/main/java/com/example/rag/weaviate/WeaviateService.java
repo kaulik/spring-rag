@@ -49,14 +49,22 @@ public class WeaviateService {
     // Schema bootstrap
     // -------------------------------------------------------------------------
 
+    private static final List<String[]> REQUIRED_PROPERTIES = List.of(
+            new String[]{"text",     "text"},
+            new String[]{"source",   "text"},
+            new String[]{"chunk_id", "text"}
+    );
+
     @PostConstruct
     public void ensureCollectionExists() {
         String collection = props.getWeaviate().getCollection();
         String baseUrl    = props.getWeaviate().getBaseUrl();
         try {
-            int status = getStatus(baseUrl + "/v1/schema/" + collection);
+            String schemaUrl = baseUrl + "/v1/schema/" + collection;
+            int status = getStatus(schemaUrl);
             if (status == 200) {
-                log.info("Weaviate collection '{}' already exists", collection);
+                log.info("Weaviate collection '{}' already exists — checking properties", collection);
+                ensurePropertiesExist(schemaUrl, collection, baseUrl);
                 return;
             }
 
@@ -76,6 +84,27 @@ public class WeaviateService {
             log.info("Created Weaviate collection '{}'", collection);
         } catch (Exception e) {
             log.warn("Could not ensure Weaviate collection '{}' exists: {}", collection, e.getMessage());
+        }
+    }
+
+    private void ensurePropertiesExist(String schemaUrl, String collection, String baseUrl) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(schemaUrl)).GET().build();
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        JsonNode classSchema = objectMapper.readTree(resp.body());
+
+        java.util.Set<String> existing = new java.util.HashSet<>();
+        for (JsonNode prop : classSchema.path("properties")) {
+            existing.add(prop.path("name").asText());
+        }
+        log.info("Weaviate collection '{}' has properties: {}", collection, existing);
+
+        for (String[] prop : REQUIRED_PROPERTIES) {
+            if (!existing.contains(prop[0])) {
+                String body = String.format(
+                        "{\"name\": \"%s\", \"dataType\": [\"%s\"]}", prop[0], prop[1]);
+                post(baseUrl + "/v1/schema/" + collection + "/properties", body);
+                log.info("Added missing property '{}' to collection '{}'", prop[0], collection);
+            }
         }
     }
 
