@@ -52,6 +52,19 @@ public class RagController {
     }
 
     @Data
+    public static class IngestRequest {
+        @NotBlank(message = "contextText must not be blank")
+        private String contextText;
+
+        private String source;
+    }
+
+    @Data
+    public static class IngestResponse {
+        private int ingestedChunks;
+    }
+
+    @Data
     public static class QueryResponse {
         private String            answer;
         private List<RetrievedDoc> sources;
@@ -74,6 +87,24 @@ public class RagController {
         QueryResponse resp = new QueryResponse();
         resp.setAnswer(result.getAnswer());
         resp.setSources(result.getSources());
+        return ResponseEntity.ok(resp);
+    }
+
+    /**
+     * Ingest raw context text into Weaviate without querying.
+     */
+    @PostMapping("/ingest")
+    public ResponseEntity<IngestResponse> ingest(@Valid @RequestBody IngestRequest req) {
+        inputGuardrailService.validateContextText(req.getContextText());
+        String source = (req.getSource() == null || req.getSource().isBlank())
+                ? "frontend"
+                : req.getSource().trim();
+        log.info("POST /api/ingest — source='{}', contextLen={}", source, req.getContextText().length());
+
+        int chunks = ragService.ingestContextText(req.getContextText(), source);
+
+        IngestResponse resp = new IngestResponse();
+        resp.setIngestedChunks(chunks);
         return ResponseEntity.ok(resp);
     }
 

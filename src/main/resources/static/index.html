@@ -226,9 +226,9 @@
       <button class="tab" onclick="switchTab('stored')">Query Stored Docs</button>
     </div>
 
-    <!-- Panel A: paste text + ask -->
+    <!-- Panel A: paste text + ingest -->
     <div id="panel-ctx" class="panel active">
-      <div class="card-title">Paste context &amp; ask a question</div>
+      <div class="card-title">Paste context &amp; ingest into Weaviate</div>
 
       <label for="ctx-source">Source label <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
       <input type="text" id="ctx-source"
@@ -236,15 +236,11 @@
 
       <label for="ctx-text">Context text</label>
       <textarea id="ctx-text" rows="9"
-        placeholder="Paste the full text you want the model to search over..."></textarea>
-
-      <label for="ctx-query">Your question</label>
-      <textarea id="ctx-query" rows="2"
-        placeholder="What would you like to know about the text above?"></textarea>
+        placeholder="Paste the full text you want to ingest into Weaviate..."></textarea>
 
       <div class="row">
-        <button class="btn-primary" id="ctx-btn" onclick="runContextQuery()">
-          Ingest &amp; Ask
+        <button class="btn-primary" id="ctx-btn" onclick="runIngest()">
+          Ingest
         </button>
         <span class="status" id="ctx-status"></span>
       </div>
@@ -362,37 +358,30 @@
   }
 
   // --------------------------------------------------------------------------
-  // Context + question
+  // Ingest only (Context tab)
   // --------------------------------------------------------------------------
-  async function runContextQuery() {
-    const query       = document.getElementById('ctx-query').value.trim();
+  async function runIngest() {
     const contextText = document.getElementById('ctx-text').value.trim();
     const source      = document.getElementById('ctx-source').value.trim() || 'frontend';
 
-    if (!query)       { setStatus('ctx-status', '⚠ Enter a question.'); return; }
     if (!contextText) { setStatus('ctx-status', '⚠ Paste some context text first.'); return; }
 
     const btn = document.getElementById('ctx-btn');
     btn.disabled = true;
     setStatus('ctx-status', loading());
-    document.getElementById('answer-card').style.display = 'none';
 
     try {
       const apiKey = document.getElementById('api-key').value.trim();
-      const resp = await fetch(API + '/api/query-with-context', {
+      const resp = await fetch(API + '/api/ingest', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-        body:    JSON.stringify({ query, contextText, source }),
+        body:    JSON.stringify({ contextText, source }),
       });
 
       if (!resp.ok) throw new Error('HTTP ' + resp.status + ' — ' + await resp.text());
       const data = await resp.json();
 
-      const info = data.ingestedChunks != null
-        ? `Done &nbsp;·&nbsp; ${data.ingestedChunks} chunks ingested`
-        : 'Done.';
-      setStatus('ctx-status', info);
-      showAnswer(data);
+      setStatus('ctx-status', `✅ Done &nbsp;·&nbsp; ${data.ingestedChunks} chunks ingested`);
     } catch (err) {
       setStatus('ctx-status', '❌ ' + err.message);
     } finally {
