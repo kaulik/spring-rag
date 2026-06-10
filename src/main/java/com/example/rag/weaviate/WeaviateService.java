@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -34,6 +37,8 @@ import java.util.stream.Collectors;
 public class WeaviateService {
 
     private final RagProperties props;
+    private final ObservationRegistry observationRegistry;
+    private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
@@ -123,7 +128,13 @@ public class WeaviateService {
                     "chunks.size()=" + chunks.size() +
                     " but embeddings.size()=" + embeddings.size());
         }
+        Observation.createNotStarted("weaviate.ingest", observationRegistry)
+                .lowCardinalityKeyValue("collection", props.getWeaviate().getCollection())
+                .observe(() -> doIngestChunks(chunks, embeddings));
+        meterRegistry.counter("weaviate.ingest.chunks").increment(chunks.size());
+    }
 
+    private void doIngestChunks(List<Chunk> chunks, List<List<Double>> embeddings) {
         String collection = props.getWeaviate().getCollection();
         String url = props.getWeaviate().getBaseUrl() + "/v1/batch/objects";
         log.info("[Weaviate] ingestChunks() → POST {} | collection={} | chunks={}", url, collection, chunks.size());
@@ -202,6 +213,14 @@ public class WeaviateService {
      * @return Up to {@code rag.retrieval.top-k} matched documents.
      */
     public List<RetrievedDoc> hybridSearch(String query, List<Double> queryEmbedding) {
+        List<RetrievedDoc> docs = Observation.createNotStarted("weaviate.search", observationRegistry)
+                .lowCardinalityKeyValue("collection", props.getWeaviate().getCollection())
+                .observe(() -> doHybridSearch(query, queryEmbedding));
+        meterRegistry.summary("weaviate.search.results").record(docs.size());
+        return docs;
+    }
+
+    private List<RetrievedDoc> doHybridSearch(String query, List<Double> queryEmbedding) {
         int    topK       = props.getRetrieval().getTopK();
         double alpha      = props.getRetrieval().getHybridAlpha();
         String collection = props.getWeaviate().getCollection();

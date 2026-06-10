@@ -1,0 +1,19 @@
+<configuration>
+  <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="spring-rag"/>
+
+  <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+      <customFields>{"service":"${appName}"}</customFields>
+      <!-- Micrometer Tracing injects these into MDC automatically -->
+      <includeMdcKeyName>traceId</includeMdcKeyName>
+      <includeMdcKeyName>spanId</includeMdcKeyName>
+    </encoder>
+  </appender>
+
+  <logger name="com.example.rag" level="INFO"/>
+  <logger name="org.springframework.web" level="WARN"/>
+
+  <root level="INFO">
+    <appender-ref ref="JSON_CONSOLE"/>
+  </root>
+</configuration>

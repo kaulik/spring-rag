@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -24,14 +26,21 @@ import java.util.List;
 public class OllamaClient {
 
     private final RagProperties props;
+    private final ObservationRegistry observationRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
     public List<Double> embed(String text) {
-        String url = props.getOllama().getBaseUrl() + "/api/embeddings";
         String model = props.getOllama().getEmbeddingModel();
+        return Observation.createNotStarted("ollama.embed", observationRegistry)
+                .lowCardinalityKeyValue("model", model)
+                .observe(() -> doEmbed(text, model));
+    }
+
+    private List<Double> doEmbed(String text, String model) {
+        String url = props.getOllama().getBaseUrl() + "/api/embeddings";
         log.debug("[Ollama] embed() → POST {} | model={} | textLen={}", url, model, text.length());
         try {
             ObjectNode body = objectMapper.createObjectNode()
@@ -82,8 +91,14 @@ public class OllamaClient {
     }
 
     public String chat(String systemPrompt, String userPrompt) {
-        String url = props.getOllama().getBaseUrl() + "/api/chat";
         String model = props.getOllama().getChatModel();
+        return Observation.createNotStarted("ollama.chat", observationRegistry)
+                .lowCardinalityKeyValue("model", model)
+                .observe(() -> doChat(systemPrompt, userPrompt, model));
+    }
+
+    private String doChat(String systemPrompt, String userPrompt, String model) {
+        String url = props.getOllama().getBaseUrl() + "/api/chat";
         log.debug("[Ollama] chat() → POST {} | model={} | promptLen={}", url, model, userPrompt.length());
         try {
             ArrayNode messages = objectMapper.createArrayNode();

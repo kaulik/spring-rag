@@ -1,3 +1,7 @@
+spring:
+  application:
+    name: spring-rag
+
 server:
   port: 8080
   error:
@@ -10,10 +14,21 @@ server:
       prefix: spring-rag-access
       suffix: .log
       pattern: '%t "%r" %s %b %D ms'
-logging:
-  level:
-    com.example.rag: INFO
-    org.springframework.web: WARN
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  tracing:
+    sampling:
+      probability: ${OTEL_SAMPLE_RATE:1.0}
+  otlp:
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://host.docker.internal:4318}/v1/metrics
+        step: 30s
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://host.docker.internal:4318}/v1/traces
 
 rag:
   ollama:
