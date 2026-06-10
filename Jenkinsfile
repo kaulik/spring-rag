@@ -78,6 +78,7 @@ pipeline {
                       --name myapp \
                       -p 8585:8080 \
 											-e WEAVIATE_API_KEY=$WEAVIATE_API_KEY \
+										  -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 \
 	                    --add-host=host.docker.internal:host-gateway \
                       --add-host=ollama:host-gateway \
                       --add-host=weaviate:host-gateway \
