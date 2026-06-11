@@ -1,13 +1,19 @@
 <configuration>
   <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="spring-rag"/>
 
+  <!-- Structured JSON to stdout (for local dev and Docker log inspection) -->
   <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
     <encoder class="net.logstash.logback.encoder.LogstashEncoder">
       <customFields>{"service":"${appName}"}</customFields>
-      <!-- Micrometer Tracing injects these into MDC automatically -->
       <includeMdcKeyName>traceId</includeMdcKeyName>
       <includeMdcKeyName>spanId</includeMdcKeyName>
     </encoder>
+  </appender>
+
+  <!-- OTLP push to OTel Collector → Elasticsearch
+       OpenTelemetryAppender.install() is called at startup by OtelLoggingConfig -->
+  <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+    <captureExperimentalAttributes>true</captureExperimentalAttributes>
   </appender>
 
   <logger name="com.example.rag" level="INFO"/>
@@ -15,5 +21,6 @@
 
   <root level="INFO">
     <appender-ref ref="JSON_CONSOLE"/>
+    <appender-ref ref="OTEL"/>
   </root>
 </configuration>
