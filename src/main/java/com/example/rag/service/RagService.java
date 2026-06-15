@@ -7,6 +7,8 @@ import com.example.rag.weaviate.WeaviateService;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,12 +29,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RagService {
 
-    private final RagProperties    props;
-    private final ChunkingService  chunkingService;
-    private final OllamaClient     ollamaClient;
-    private final WeaviateService  weaviateService;
-    private final ResponseSanitizer responseSanitizer;
-    private final ObjectMapper     objectMapper = new ObjectMapper();
+    private final RagProperties      props;
+    private final ChunkingService    chunkingService;
+    private final OllamaClient       ollamaClient;
+    private final WeaviateService    weaviateService;
+    private final ResponseSanitizer  responseSanitizer;
+    private final ObservationRegistry observationRegistry;
+    private final ObjectMapper       objectMapper = new ObjectMapper();
 
     private static final String ANSWER_SYSTEM_PROMPT =
             "You are a helpful AI assistant. Answer questions based solely on the provided context. " +
@@ -62,9 +65,17 @@ public class RagService {
      * @return number of chunks ingested
      */
     public int ingestContextText(String text, String source) {
+        return Observation.createNotStarted("rag.ingest", observationRegistry)
+                .lowCardinalityKeyValue("source", source)
+                .observe(() -> doIngestContextText(text, source));
+    }
+
+    private int doIngestContextText(String text, String source) {
         log.info("[RAG] ingestContextText() source='{}' textLen={}", source, text.length());
 
-        List<Chunk> chunks = chunkingService.chunkText(text, source);
+        List<Chunk> chunks = Observation.createNotStarted("rag.chunk", observationRegistry)
+                .observe(() -> chunkingService.chunkText(text, source));
+
         if (chunks.isEmpty()) {
             log.warn("[RAG] ingestContextText() no chunks produced for source '{}'", source);
             return 0;
@@ -72,9 +83,16 @@ public class RagService {
         log.info("[RAG] ingestContextText() chunked into {} chunks", chunks.size());
 
         List<List<Double>> embeddings = new ArrayList<>();
-        for (int i = 0; i < chunks.size(); i++) {
-            log.info("[RAG] ingestContextText() embedding chunk {}/{}", i + 1, chunks.size());
-            embeddings.add(ollamaClient.embed(chunks.get(i).getText()));
+        Observation embedObs = Observation.createNotStarted("rag.embed.batch", observationRegistry)
+                .lowCardinalityKeyValue("chunkCount", String.valueOf(chunks.size()))
+                .start();
+        try {
+            for (int i = 0; i < chunks.size(); i++) {
+                log.info("[RAG] ingestContextText() embedding chunk {}/{}", i + 1, chunks.size());
+                embeddings.add(ollamaClient.embed(chunks.get(i).getText()));
+            }
+        } finally {
+            embedObs.stop();
         }
         log.info("[RAG] ingestContextText() all embeddings done, sending to Weaviate");
 
@@ -87,10 +105,16 @@ public class RagService {
      * Run Hybrid RAG + rerank for a plain question (over already-stored docs).
      */
     public RagResult answerQuestion(String question) {
+        return Observation.createNotStarted("rag.answer", observationRegistry)
+                .observe(() -> doAnswerQuestion(question));
+    }
+
+    private RagResult doAnswerQuestion(String question) {
         log.info("[RAG] answerQuestion() question='{}'", question);
 
         log.info("[RAG] Step 1/4 — embedding query via Ollama");
-        List<Double> queryEmbedding = ollamaClient.embed(question);
+        List<Double> queryEmbedding = Observation.createNotStarted("rag.embed.query", observationRegistry)
+                .observe(() -> ollamaClient.embed(question));
         log.info("[RAG] Step 1/4 — query embedding done, dims={}", queryEmbedding.size());
 
         log.info("[RAG] Step 2/4 — hybrid search in Weaviate");
@@ -98,7 +122,9 @@ public class RagService {
         log.info("[RAG] Step 2/4 — hybrid search returned {} docs", retrieved.size());
 
         log.info("[RAG] Step 3/4 — reranking {} docs via Ollama", retrieved.size());
-        List<RetrievedDoc> reranked = rerank(question, retrieved);
+        List<RetrievedDoc> reranked = Observation.createNotStarted("rag.rerank", observationRegistry)
+                .lowCardinalityKeyValue("inputDocs", String.valueOf(retrieved.size()))
+                .observe(() -> rerank(question, retrieved));
         log.info("[RAG] Step 3/4 — rerank kept {} docs", reranked.size());
 
         log.info("[RAG] Step 4/4 — generating answer via Ollama");
@@ -112,7 +138,8 @@ public class RagService {
                 "Context:\n" + context + "\n\n" +
                 "Question: " + question;
 
-        String raw = ollamaClient.chat(ANSWER_SYSTEM_PROMPT, prompt);
+        String raw = Observation.createNotStarted("rag.generate", observationRegistry)
+                .observe(() -> ollamaClient.chat(ANSWER_SYSTEM_PROMPT, prompt));
         String answer = responseSanitizer.sanitize(raw);
         log.info("[RAG] Step 4/4 — answer generated, len={}", answer.length());
 
