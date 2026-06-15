@@ -97,6 +97,16 @@ public class OllamaClient {
                 .observe(() -> doChat(systemPrompt, userPrompt, model));
     }
 
+    public String rerank(String systemPrompt, String userPrompt) {
+        String rerankModel = props.getOllama().getRerankModel();
+        String model = (rerankModel != null && !rerankModel.isBlank())
+                ? rerankModel
+                : props.getOllama().getChatModel();
+        return Observation.createNotStarted("ollama.rerank", observationRegistry)
+                .lowCardinalityKeyValue("model", model)
+                .observe(() -> doChat(systemPrompt, userPrompt, model));
+    }
+
     private String doChat(String systemPrompt, String userPrompt, String model) {
         String url = props.getOllama().getBaseUrl() + "/api/chat";
         log.debug("[Ollama] chat() → POST {} | model={} | promptLen={}", url, model, userPrompt.length());

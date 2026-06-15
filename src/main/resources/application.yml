@@ -35,6 +35,7 @@ rag:
     base-url: ${RAG_OLLAMA_BASE_URL:http://host.docker.internal:11434}
     embedding-model: ${RAG_OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
     chat-model: ${RAG_OLLAMA_CHAT_MODEL:llama3.2:3b}
+    rerank-model: ${RAG_OLLAMA_RERANK_MODEL:}
     timeout-seconds: ${RAG_OLLAMA_TIMEOUT_SECONDS:60}
   weaviate:
     base-url: ${RAG_WEAVIATE_BASE_URL:http://host.docker.internal:8383}
@@ -42,9 +43,11 @@ rag:
     text-field: text
     api-key: ${WEAVIATE_API_KEY:}
   retrieval:
-    top-k: 10
+    top-k: ${RAG_RETRIEVAL_TOP_K:5}
     hybrid-alpha: 0.5
-    rerank-top-k: 5
+    rerank-top-k: ${RAG_RERANK_TOP_K:3}
+    rerank-enabled: ${RAG_RERANK_ENABLED:true}
+    rerank-preview-chars: ${RAG_RERANK_PREVIEW_CHARS:150}
   chunking:
     sentences-per-chunk: 3
     token-overlap: 8

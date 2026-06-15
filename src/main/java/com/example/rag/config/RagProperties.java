@@ -25,6 +25,8 @@ public class RagProperties {
         private String embeddingModel = "nomic-embed-text";
         @NotBlank
         private String chatModel = "llama3.2:3b";
+        /** Separate lighter model for reranking; falls back to chatModel if blank. */
+        private String rerankModel = "";
         private int timeoutSeconds = 60;
     }
 
@@ -41,9 +43,13 @@ public class RagProperties {
 
     @Data
     public static class Retrieval {
-        private int topK = 10;
+        private int topK = 5;
         private double hybridAlpha = 0.5;
-        private int rerankTopK = 5;
+        private int rerankTopK = 3;
+        /** Set false to skip LLM reranking and return hybrid search order directly. */
+        private boolean rerankEnabled = true;
+        /** Max chars of each doc sent to the reranker prompt. */
+        private int rerankPreviewChars = 150;
     }
 
     @Data

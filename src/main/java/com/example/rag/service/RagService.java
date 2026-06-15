@@ -159,6 +159,13 @@ public class RagService {
 
         int k = Math.max(1, Math.min(props.getRetrieval().getRerankTopK(), docs.size()));
 
+        if (!props.getRetrieval().isRerankEnabled()) {
+            log.info("[RAG] rerank disabled — returning top-{} from hybrid search order", k);
+            return docs.subList(0, k);
+        }
+
+        int previewChars = props.getRetrieval().getRerankPreviewChars();
+
         // Build the scoring prompt
         StringBuilder sb = new StringBuilder();
         sb.append("You are a reranking model.\n");
@@ -172,17 +179,16 @@ public class RagService {
         for (int i = 0; i < docs.size(); i++) {
             RetrievedDoc d = docs.get(i);
             String preview = d.getText();
-            if (preview.length() > 400) {
-                preview = preview.substring(0, 400) + "...";
+            if (preview.length() > previewChars) {
+                preview = preview.substring(0, previewChars) + "...";
             }
             sb.append("[").append(i + 1).append("] ")
-              .append("(source: ").append(d.getSource()).append(") ")
               .append(preview.replace("\n", " "))
               .append("\n");
         }
 
         try {
-            String response = ollamaClient.chat(RERANK_SYSTEM_PROMPT, sb.toString());
+            String response = ollamaClient.rerank(RERANK_SYSTEM_PROMPT, sb.toString());
             Map<Integer, Double> scores = parseScores(response);
 
             if (!scores.isEmpty()) {
