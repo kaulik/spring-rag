@@ -71,6 +71,8 @@ pipeline {
                     sh """
                         docker stop myapp || true
                         docker rm   myapp || true
+                        docker ps -q --filter publish=8585 | xargs -r docker stop
+                        docker ps -aq --filter publish=8585 | xargs -r docker rm
                         docker run -d \
                           --name myapp \
                           -p 8585:8080 \
