@@ -7,11 +7,11 @@ ENV BUILD_ID=${BUILD_ID}
 
 WORKDIR /app
 
-COPY target/*.jar app.jar
+COPY target/*.jar spring-rag.jar
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-jar", "spring-rag.jar"]
