@@ -2,7 +2,7 @@ spring:
   application:
     name: spring-rag
   config:
-    import: "optional:configserver:${CONFIG_SERVER_URL:http://host.docker.internal:8888}"
+    import: "optional:configserver:${CONFIG_SERVER_URL:http://host.docker.internal:8686}"
   cloud:
     config:
       fail-fast: false
