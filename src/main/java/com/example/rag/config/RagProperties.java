@@ -35,7 +35,7 @@ public class RagProperties {
         @NotBlank
         private String baseUrl = "http://host.docker.internal:8383";
         @NotBlank
-        private String collection = "pyAgentRAGDocuments";
+        private String collection = "PyAgentRAGDocuments";
         @NotBlank
         private String textField = "text";
         private String apiKey;
