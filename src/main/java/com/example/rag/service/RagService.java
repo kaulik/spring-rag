@@ -2,6 +2,7 @@ package com.example.rag.service;
 
 import com.example.rag.config.RagProperties;
 import com.example.rag.ollama.OllamaClient;
+import com.example.rag.security.InputGuardrailService;
 import com.example.rag.service.ChunkingService.Chunk;
 import com.example.rag.weaviate.WeaviateService;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
@@ -29,12 +30,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RagService {
 
-    private final RagProperties      props;
-    private final ChunkingService    chunkingService;
-    private final OllamaClient       ollamaClient;
-    private final WeaviateService    weaviateService;
-    private final ResponseSanitizer  responseSanitizer;
-    private final ObservationRegistry observationRegistry;
+    private final RagProperties        props;
+    private final ChunkingService      chunkingService;
+    private final OllamaClient         ollamaClient;
+    private final WeaviateService      weaviateService;
+    private final ResponseSanitizer    responseSanitizer;
+    private final InputGuardrailService guardrailService;
+    private final ObservationRegistry  observationRegistry;
     private final ObjectMapper       objectMapper = new ObjectMapper();
 
     private static final String ANSWER_SYSTEM_PROMPT =
@@ -121,10 +123,18 @@ public class RagService {
         List<RetrievedDoc> retrieved = weaviateService.hybridSearch(question, queryEmbedding);
         log.info("[RAG] Step 2/4 — hybrid search returned {} docs", retrieved.size());
 
-        log.info("[RAG] Step 3/4 — reranking {} docs via Ollama", retrieved.size());
+        log.info("[RAG] Step 2b/4 — scanning retrieved chunks for context poisoning");
+        List<RetrievedDoc> sanitized = retrieved.stream()
+                .map(doc -> new RetrievedDoc(
+                        guardrailService.sanitizeRetrievedChunk(doc.getText(), doc.getSource()),
+                        doc.getSource(),
+                        doc.getChunkId()))
+                .collect(Collectors.toList());
+
+        log.info("[RAG] Step 3/4 — reranking {} docs via Ollama", sanitized.size());
         List<RetrievedDoc> reranked = Observation.createNotStarted("rag.rerank", observationRegistry)
-                .lowCardinalityKeyValue("inputDocs", String.valueOf(retrieved.size()))
-                .observe(() -> rerank(question, retrieved));
+                .lowCardinalityKeyValue("inputDocs", String.valueOf(sanitized.size()))
+                .observe(() -> rerank(question, sanitized));
         log.info("[RAG] Step 3/4 — rerank kept {} docs", reranked.size());
 
         log.info("[RAG] Step 4/4 — generating answer via Ollama");
