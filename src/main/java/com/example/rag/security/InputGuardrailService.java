@@ -49,7 +49,7 @@ public class InputGuardrailService {
         // Role injection in document content
         "you are (now )?(a |an )?helpful|act as (a |an )?[a-z]+\\s+assistant|" +
         "your (new |true |real )?role is|" +
-        "from now on (you |your ))" +
+        "from now on (you |your )" +
         ")"
     );
 
