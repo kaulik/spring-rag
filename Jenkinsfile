@@ -66,7 +66,8 @@ pipeline {
         stage('Deploy') {
             steps {
                 withCredentials([
-                    string(credentialsId: 'WEAVIATE_API_KEY', variable: 'WEAVIATE_API_KEY')
+                    string(credentialsId: 'WEAVIATE_API_KEY', variable: 'WEAVIATE_API_KEY'),
+                    string(credentialsId: 'API_KEY',          variable: 'API_KEY')
                 ]) {
                     sh """
                         docker stop myapp || true
@@ -78,6 +79,7 @@ pipeline {
                           -p 8585:8080 \
                           -e WEAVIATE_API_KEY=${WEAVIATE_API_KEY} \
                           -e RAG_WEAVIATE_API_KEY=${WEAVIATE_API_KEY} \
+                          -e API_KEY=${API_KEY} \
                           -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 \
                           -e CONFIG_SERVER_URL=http://host.docker.internal:8686 \
                           --add-host=host.docker.internal:host-gateway \
