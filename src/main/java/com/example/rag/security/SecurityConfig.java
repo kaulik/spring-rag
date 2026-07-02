@@ -38,7 +38,7 @@ public class SecurityConfig {
     public FilterRegistrationBean<ApiKeyAuthFilter> apiKeyAuthFilterRegistration() {
         FilterRegistrationBean<ApiKeyAuthFilter> bean = new FilterRegistrationBean<>();
         bean.setFilter(new ApiKeyAuthFilter(guardrailProperties));
-        bean.addUrlPatterns("/api/*");
+        bean.addUrlPatterns("/api/*", "/actuator/refresh");
         bean.setOrder(2);
         return bean;
     }

@@ -18,7 +18,10 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    /** Pairs a bucket with the rpm it was built for, so a config refresh replaces it. */
+    private record LimitedBucket(int rpm, Bucket bucket) {}
+
+    private final ConcurrentHashMap<String, LimitedBucket> buckets = new ConcurrentHashMap<>();
     private final GuardrailProperties guardrailProperties;
 
     public RateLimitFilter(GuardrailProperties guardrailProperties) {
@@ -37,7 +40,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         String key = resolveKey(request);
-        Bucket bucket = buckets.computeIfAbsent(key, this::newBucket);
+        int rpm = guardrailProperties.getRateLimit().getRequestsPerMinute();
+        Bucket bucket = buckets.compute(key, (k, existing) ->
+                (existing != null && existing.rpm() == rpm)
+                        ? existing
+                        : new LimitedBucket(rpm, newBucket(rpm))
+        ).bucket();
 
         if (bucket.tryConsume(1)) {
             filterChain.doFilter(request, response);
@@ -55,8 +63,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         return (apiKey != null && !apiKey.isBlank()) ? "key:" + apiKey : "ip:" + request.getRemoteAddr();
     }
 
-    private Bucket newBucket(String key) {
-        int rpm = guardrailProperties.getRateLimit().getRequestsPerMinute();
+    private Bucket newBucket(int rpm) {
         Bandwidth limit = Bandwidth.classic(rpm, Refill.greedy(rpm, Duration.ofMinutes(1)));
         return Bucket.builder().addLimit(limit).build();
     }

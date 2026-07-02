@@ -25,7 +25,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
 
-        if (!request.getRequestURI().startsWith("/api/")) {
+        String uri = request.getRequestURI();
+        if (!uri.startsWith("/api/") && !uri.startsWith("/actuator/refresh")) {
             filterChain.doFilter(request, response);
             return;
         }
