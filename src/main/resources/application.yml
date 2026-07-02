@@ -2,10 +2,13 @@ spring:
   application:
     name: spring-rag
   config:
-    import: "optional:configserver:${CONFIG_SERVER_URL:http://host.docker.internal:8686}"
+    # Mandatory (no "optional:" prefix): startup fails if the config server
+    # cannot be reached, instead of silently running on framework defaults.
+    # CONFIG_SERVER_URL has no fallback — the deployment must set it.
+    import: "configserver:${CONFIG_SERVER_URL}"
   cloud:
     config:
-      fail-fast: false
+      fail-fast: true
       retry:
         max-attempts: 6
         initial-interval: 2000

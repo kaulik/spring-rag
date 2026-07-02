@@ -15,7 +15,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class OtelLoggingConfig {
 
-    @Value("${OTEL_EXPORTER_OTLP_ENDPOINT:http://host.docker.internal:4318}")
+    // No fallback on purpose — the deployment must supply the endpoint explicitly.
+    @Value("${OTEL_EXPORTER_OTLP_ENDPOINT}")
     private String otlpEndpoint;
 
     /**

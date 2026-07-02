@@ -169,7 +169,7 @@ public class RagService {
 
         int k = Math.max(1, Math.min(props.getRetrieval().getRerankTopK(), docs.size()));
 
-        if (!props.getRetrieval().isRerankEnabled()) {
+        if (!props.getRetrieval().getRerankEnabled()) {
             log.info("[RAG] rerank disabled — returning top-{} from hybrid search order", k);
             return docs.subList(0, k);
         }
