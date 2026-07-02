@@ -44,7 +44,7 @@ public class WeaviateService {
 
     @Data
     @AllArgsConstructor
-    public static class RetrievedDoc {
+    public static class RetrievedDoc implements java.io.Serializable {
         private String text;
         private String source;
         private String chunkId;

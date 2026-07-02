@@ -224,6 +224,7 @@
     <div class="tabs">
       <button class="tab active" onclick="switchTab('ctx')">Context + Question</button>
       <button class="tab" onclick="switchTab('stored')">Query Stored Docs</button>
+      <button class="tab" onclick="switchTab('v2')">v2 · LangGraph</button>
     </div>
 
     <!-- Panel A: paste text + ingest -->
@@ -261,6 +262,33 @@
         <span class="status" id="stored-status"></span>
       </div>
     </div>
+
+    <!-- Panel C: v2 pipeline (Spring AI + LangGraph4j) -->
+    <div id="panel-v2" class="panel">
+      <div class="card-title">Spring AI + LangGraph4j pipeline (/api/v2)</div>
+
+      <label for="v2-source">Source label <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
+      <input type="text" id="v2-source"
+             placeholder="e.g. meeting-notes, patient-summary" />
+
+      <label for="v2-ctx">Context text <span style="font-weight:400;color:#94a3b8;">(optional — used by Ingest, or combined with the question)</span></label>
+      <textarea id="v2-ctx" rows="6"
+        placeholder="Paste text to ingest via the v2 graph, or leave empty to query stored docs..."></textarea>
+
+      <label for="v2-query">Your question</label>
+      <textarea id="v2-query" rows="3"
+        placeholder="Ask anything — runs through the LangGraph inference graph..."></textarea>
+
+      <div class="row">
+        <button class="btn-primary" id="v2-ingest-btn" onclick="runIngestV2()">
+          Ingest
+        </button>
+        <button class="btn-primary" id="v2-query-btn" onclick="runQueryV2()">
+          Run Query
+        </button>
+        <span class="status" id="v2-status"></span>
+      </div>
+    </div>
   </div>
 
   <!-- Answer card (hidden until a query runs) -->
@@ -287,14 +315,15 @@
   // --------------------------------------------------------------------------
   // Tab switching
   // --------------------------------------------------------------------------
+  const TAB_NAMES = ['ctx', 'stored', 'v2'];
+
   function switchTab(name) {
     document.querySelectorAll('.tab').forEach((t, i) => {
-      t.classList.toggle('active',
-        (name === 'ctx'    && i === 0) ||
-        (name === 'stored' && i === 1));
+      t.classList.toggle('active', TAB_NAMES[i] === name);
     });
-    document.getElementById('panel-ctx').classList.toggle('active', name === 'ctx');
-    document.getElementById('panel-stored').classList.toggle('active', name === 'stored');
+    TAB_NAMES.forEach(n => {
+      document.getElementById('panel-' + n).classList.toggle('active', n === name);
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -415,6 +444,71 @@
       showAnswer(data);
     } catch (err) {
       setStatus('stored-status', '❌ ' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // v2 pipeline (Spring AI + LangGraph4j) — /api/v2/*
+  // --------------------------------------------------------------------------
+  async function runIngestV2() {
+    const contextText = document.getElementById('v2-ctx').value.trim();
+    const source      = document.getElementById('v2-source').value.trim() || 'frontend';
+
+    if (!contextText) { setStatus('v2-status', '⚠ Paste some context text first.'); return; }
+
+    const btn = document.getElementById('v2-ingest-btn');
+    btn.disabled = true;
+    setStatus('v2-status', loading());
+
+    try {
+      const apiKey = document.getElementById('api-key').value.trim();
+      const resp = await fetch(API + '/api/v2/ingest', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+        body:    JSON.stringify({ contextText, source }),
+      });
+
+      if (!resp.ok) throw new Error('HTTP ' + resp.status + ' — ' + await resp.text());
+      const data = await resp.json();
+
+      setStatus('v2-status', `✅ Done &nbsp;·&nbsp; ${data.ingestedChunks} chunks ingested`);
+    } catch (err) {
+      setStatus('v2-status', '❌ ' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function runQueryV2() {
+    const query       = document.getElementById('v2-query').value.trim();
+    const contextText = document.getElementById('v2-ctx').value.trim();
+    const source      = document.getElementById('v2-source').value.trim() || 'frontend';
+
+    if (!query) { setStatus('v2-status', '⚠ Enter a question.'); return; }
+
+    const btn = document.getElementById('v2-query-btn');
+    btn.disabled = true;
+    setStatus('v2-status', loading());
+    document.getElementById('answer-card').style.display = 'none';
+
+    try {
+      const apiKey = document.getElementById('api-key').value.trim();
+      const url  = contextText ? '/api/v2/query-with-context' : '/api/v2/query';
+      const body = contextText ? { query, contextText, source } : { query };
+      const resp = await fetch(API + url, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+        body:    JSON.stringify(body),
+      });
+
+      if (!resp.ok) throw new Error('HTTP ' + resp.status + ' — ' + await resp.text());
+      const data = await resp.json();
+      setStatus('v2-status', 'Done.');
+      showAnswer(data);
+    } catch (err) {
+      setStatus('v2-status', '❌ ' + err.message);
     } finally {
       btn.disabled = false;
     }

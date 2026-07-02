@@ -32,7 +32,7 @@ public class ChunkingService {
 
     @Data
     @AllArgsConstructor
-    public static class Chunk {
+    public static class Chunk implements java.io.Serializable {
         private String text;
         private String source;
         private String chunkId;
