@@ -7,6 +7,11 @@ pipeline {
             defaultValue: "${env.BUILD_NUMBER}",
             description: 'Docker image tag / build identifier'
         )
+        choice(
+            name: 'SPRING_PROFILE',
+            choices: ['prod', 'dev'],
+            description: 'Spring profile — selects spring-rag-<profile>.yml overrides from config-repo'
+        )
     }
 
     environment {
@@ -22,6 +27,7 @@ pipeline {
         stage('Validate') {
             steps {
                 echo "BUILD_ID : ${params.BUILD_ID}"
+                echo "PROFILE  : ${params.SPRING_PROFILE}"
                 sh 'docker info'
                 sh 'ls -la'
             }
@@ -82,6 +88,7 @@ pipeline {
                           -e API_KEY=${API_KEY} \
                           -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 \
                           -e CONFIG_SERVER_URL=http://host.docker.internal:8686 \
+                          -e SPRING_PROFILES_ACTIVE=${params.SPRING_PROFILE} \
                           --add-host=host.docker.internal:host-gateway \
                           --add-host=ollama:host-gateway \
                           --add-host=weaviate:host-gateway \
