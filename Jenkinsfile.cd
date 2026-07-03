@@ -159,9 +159,35 @@ ${servers}
     keepalive 32;
 }
 """
+                    // conf.d is often a read-only bind mount inside the nginx
+                    // container, which makes docker cp fail. Find the host path
+                    // backing the upstream file and write there instead — the
+                    // host side of a :ro mount is writable and nginx sees it.
+                    def mounts = sh(
+                        returnStdout: true,
+                        script: "docker inspect ${params.NGINX_CONTAINER} --format '{{range .Mounts}}{{.Destination}}|{{.Source}}{{\"\\n\"}}{{end}}'"
+                    ).trim()
+                    def target = env.UPSTREAM_CONF
+                    def best = null
+                    mounts.split('\n').findAll { it.contains('|') }.each { line ->
+                        def (dest, src) = line.split('\\|').toList()
+                        if ((target == dest || target.startsWith(dest + '/')) &&
+                            (best == null || dest.length() > best[0].length())) {
+                            best = [dest, src]
+                        }
+                    }
+                    env.UPSTREAM_HOST_FILE = best
+                        ? best[1] + (target == best[0] ? '' : target.substring(best[0].length()))
+                        : ''
                 }
                 sh """
-                    docker cp spring-rag-upstream.conf ${params.NGINX_CONTAINER}:${env.UPSTREAM_CONF}
+                    if [ -n "\$UPSTREAM_HOST_FILE" ]; then
+                        echo "conf.d is bind-mounted — writing via host path \$UPSTREAM_HOST_FILE"
+                        docker run --rm -i -v "\$(dirname "\$UPSTREAM_HOST_FILE"):/confd" alpine \
+                            sh -c "cat > /confd/\$(basename "\$UPSTREAM_HOST_FILE")" < spring-rag-upstream.conf
+                    else
+                        docker cp spring-rag-upstream.conf ${params.NGINX_CONTAINER}:${env.UPSTREAM_CONF}
+                    fi
                     docker exec ${params.NGINX_CONTAINER} nginx -t
                     docker exec ${params.NGINX_CONTAINER} nginx -s reload
                     echo "Traffic switched to ${env.TARGET}"
