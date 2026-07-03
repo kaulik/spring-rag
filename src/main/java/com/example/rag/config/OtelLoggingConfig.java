@@ -5,6 +5,7 @@ import io.opentelemetry.exporter.otlp.http.logs.OtlpHttpLogRecordExporter;
 import io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender;
 import io.opentelemetry.sdk.logs.SdkLoggerProvider;
 import io.opentelemetry.sdk.logs.export.BatchLogRecordProcessor;
+import io.opentelemetry.sdk.resources.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
@@ -20,17 +21,21 @@ public class OtelLoggingConfig {
     private String otlpEndpoint;
 
     /**
-     * Spring Boot 3.2 OpenTelemetryAutoConfiguration picks up this bean and
+     * Spring Boot's OpenTelemetryAutoConfiguration picks up this bean and
      * includes it in the OpenTelemetry SDK instance — enabling OTLP log export.
+     * The injected Resource is Boot's auto-configured one, carrying service.name
+     * (from spring.application.name) plus OTEL_RESOURCE_ATTRIBUTES such as
+     * service.instance.id — without it, exported logs show unknown_service:java.
      */
     @Bean
-    public SdkLoggerProvider sdkLoggerProvider() {
+    public SdkLoggerProvider sdkLoggerProvider(Resource resource) {
         String logsUrl = otlpEndpoint.replaceAll("/+$", "") + "/v1/logs";
         log.info("Configuring OTLP log exporter → {}", logsUrl);
         OtlpHttpLogRecordExporter exporter = OtlpHttpLogRecordExporter.builder()
                 .setEndpoint(logsUrl)
                 .build();
         return SdkLoggerProvider.builder()
+                .setResource(resource)
                 .addLogRecordProcessor(BatchLogRecordProcessor.builder(exporter).build())
                 .build();
     }
