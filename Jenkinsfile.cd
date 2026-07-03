@@ -43,7 +43,7 @@ pipeline {
         )
         string(
             name: 'NGINX_CONTAINER',
-            defaultValue: 'nginx',
+            defaultValue: 'nginx_web',
             description: 'Name of the nginx load-balancer container'
         )
     }
