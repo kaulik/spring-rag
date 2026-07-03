@@ -1,0 +1,197 @@
+// CD pipeline: blue-green deploy of a myapp image built by the CI job.
+//
+// Deploys INSTANCE_COUNT containers to the idle color's port range, health-
+// checks each, then regenerates nginx's spring-rag upstream file and reloads —
+// traffic flips atomically. The previously live color keeps running for
+// instant rollback (re-run with SWITCH_ONLY=true and TARGET_COLOR=<old color>).
+//
+// Port plan: blue = 8585..  green = 8590..  (keep clear of 8686 config server,
+// 8484 jenkins, 8383 weaviate, 11434 ollama, 4318 otel).
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'latest',
+            description: 'myapp image tag to deploy (set by the CI job)'
+        )
+        choice(
+            name: 'TARGET_COLOR',
+            choices: ['auto', 'blue', 'green'],
+            description: 'auto = deploy to the color that is NOT currently live'
+        )
+        choice(
+            name: 'SPRING_PROFILE',
+            choices: ['prod', 'dev'],
+            description: 'Spring profile — selects spring-rag-<profile>.yml overrides from config-repo'
+        )
+        string(
+            name: 'INSTANCE_COUNT',
+            defaultValue: '3',
+            description: 'Containers per color'
+        )
+        booleanParam(
+            name: 'SWITCH_ONLY',
+            defaultValue: false,
+            description: 'Skip deployment; just point nginx at TARGET_COLOR (instant rollback — containers must already be running)'
+        )
+        booleanParam(
+            name: 'RETIRE_OLD_COLOR',
+            defaultValue: false,
+            description: 'Stop the old color after the switch (default keeps it running for rollback)'
+        )
+        string(
+            name: 'NGINX_CONTAINER',
+            defaultValue: 'nginx',
+            description: 'Name of the nginx load-balancer container'
+        )
+    }
+
+    environment {
+        BLUE_BASE_PORT  = '8585'
+        GREEN_BASE_PORT = '8590'
+        UPSTREAM_CONF   = '/etc/nginx/conf.d/spring-rag-upstream.conf'
+    }
+
+    stages {
+
+        stage('Determine colors') {
+            steps {
+                script {
+                    def live = sh(
+                        returnStdout: true,
+                        script: "docker exec ${params.NGINX_CONTAINER} sh -c \"grep -o 'color=[a-z]*' ${env.UPSTREAM_CONF} 2>/dev/null | cut -d= -f2\" || true"
+                    ).trim()
+                    env.LIVE_COLOR = live ?: 'none'
+
+                    if (params.TARGET_COLOR == 'auto') {
+                        env.TARGET = (env.LIVE_COLOR == 'blue') ? 'green' : 'blue'
+                    } else {
+                        env.TARGET = params.TARGET_COLOR
+                    }
+                    env.TARGET_BASE_PORT = (env.TARGET == 'blue') ? env.BLUE_BASE_PORT : env.GREEN_BASE_PORT
+
+                    echo "live=${env.LIVE_COLOR}  target=${env.TARGET}  basePort=${env.TARGET_BASE_PORT}  image=myapp:${params.IMAGE_TAG}"
+                    if (env.TARGET == env.LIVE_COLOR && !params.SWITCH_ONLY) {
+                        echo 'WARNING: deploying onto the LIVE color — requests may fail during container restarts'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy target color') {
+            when { expression { !params.SWITCH_ONLY } }
+            steps {
+                withCredentials([
+                    string(credentialsId: 'WEAVIATE_API_KEY', variable: 'WEAVIATE_API_KEY'),
+                    string(credentialsId: 'API_KEY',          variable: 'API_KEY')
+                ]) {
+                    sh """
+                        # Remove legacy uncolored containers from the pre-blue-green setup
+                        for legacy in myapp spring-rag-1 spring-rag-2 spring-rag-3; do
+                            docker stop \$legacy 2>/dev/null || true
+                            docker rm   \$legacy 2>/dev/null || true
+                        done
+
+                        i=1
+                        while [ \$i -le ${params.INSTANCE_COUNT} ]; do
+                            PORT=\$(( ${env.TARGET_BASE_PORT} + i - 1 ))
+                            NAME=spring-rag-${env.TARGET}-\$i
+
+                            docker stop \$NAME 2>/dev/null || true
+                            docker rm   \$NAME 2>/dev/null || true
+                            docker ps -q  --filter publish=\$PORT | xargs -r docker stop
+                            docker ps -aq --filter publish=\$PORT | xargs -r docker rm
+
+                            docker run -d \
+                              --name \$NAME \
+                              --hostname \$NAME \
+                              -p \$PORT:8080 \
+                              -e WEAVIATE_API_KEY=\$WEAVIATE_API_KEY \
+                              -e RAG_WEAVIATE_API_KEY=\$WEAVIATE_API_KEY \
+                              -e API_KEY=\$API_KEY \
+                              -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 \
+                              -e OTEL_RESOURCE_ATTRIBUTES="service.instance.id=\$NAME,service.namespace=spring-rag,host.name=\$NAME,service.version=${params.IMAGE_TAG},deployment.color=${env.TARGET}" \
+                              -e CONFIG_SERVER_URL=http://host.docker.internal:8686 \
+                              -e SPRING_PROFILES_ACTIVE=${params.SPRING_PROFILE} \
+                              --add-host=host.docker.internal:host-gateway \
+                              --add-host=ollama:host-gateway \
+                              --add-host=weaviate:host-gateway \
+                              -e BUILD_ID=${params.IMAGE_TAG} \
+                              --restart unless-stopped \
+                              myapp:${params.IMAGE_TAG}
+
+                            # Health gate — runs inside the app container (busybox wget);
+                            # the Jenkins agent is a container and can't reach host ports.
+                            t=1
+                            until docker exec \$NAME wget -qO /dev/null http://localhost:8080/actuator/health; do
+                                if [ \$t -ge 30 ]; then
+                                    echo "\$NAME failed to become healthy on port \$PORT"
+                                    docker logs --tail 100 \$NAME || true
+                                    exit 1
+                                fi
+                                t=\$(( t + 1 ))
+                                sleep 2
+                            done
+                            echo "\$NAME healthy on port \$PORT"
+
+                            i=\$(( i + 1 ))
+                        done
+                    """
+                }
+            }
+        }
+
+        stage('Switch traffic') {
+            steps {
+                script {
+                    int base  = env.TARGET_BASE_PORT as int
+                    int count = params.INSTANCE_COUNT as int
+                    def servers = (0..<count).collect { n ->
+                        "    server host.docker.internal:${base + n} max_fails=3 fail_timeout=10s;"
+                    }.join('\n')
+                    writeFile file: 'spring-rag-upstream.conf', text: """\
+# Generated by spring-rag-cd build ${env.BUILD_NUMBER} — do not edit by hand. color=${env.TARGET}
+upstream spring_rag {
+    least_conn;
+${servers}
+    keepalive 32;
+}
+"""
+                }
+                sh """
+                    docker cp spring-rag-upstream.conf ${params.NGINX_CONTAINER}:${env.UPSTREAM_CONF}
+                    docker exec ${params.NGINX_CONTAINER} nginx -t
+                    docker exec ${params.NGINX_CONTAINER} nginx -s reload
+                    echo "Traffic switched to ${env.TARGET}"
+                """
+            }
+        }
+
+        stage('Retire old color') {
+            when {
+                expression {
+                    params.RETIRE_OLD_COLOR &&
+                    env.LIVE_COLOR in ['blue', 'green'] &&
+                    env.LIVE_COLOR != env.TARGET
+                }
+            }
+            steps {
+                sh """
+                    docker ps -q --filter name=spring-rag-${env.LIVE_COLOR}- | xargs -r docker stop
+                    echo "Old color ${env.LIVE_COLOR} stopped (containers kept for docker start rollback)"
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Deployed myapp:${params.IMAGE_TAG} to ${env.TARGET}; nginx now routes /spring-rag to it. Rollback: re-run with SWITCH_ONLY=true, TARGET_COLOR=${env.LIVE_COLOR}"
+        }
+        failure {
+            echo "CD failed. nginx was NOT switched unless the 'Switch traffic' stage ran — previous color ${env.LIVE_COLOR} is still serving."
+        }
+    }
+}

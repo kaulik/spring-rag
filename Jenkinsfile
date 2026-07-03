@@ -1,3 +1,5 @@
+// CI pipeline: build, test, package, bake the Docker image, then hand off
+// to the 'spring-rag-cd' job (Jenkinsfile.cd) for the blue-green deploy.
 pipeline {
     agent any
 
@@ -7,20 +9,15 @@ pipeline {
             defaultValue: "${env.BUILD_NUMBER}",
             description: 'Docker image tag / build identifier'
         )
+        booleanParam(
+            name: 'TRIGGER_CD',
+            defaultValue: true,
+            description: 'Trigger the spring-rag-cd deploy job after a successful build'
+        )
         choice(
             name: 'SPRING_PROFILE',
             choices: ['prod', 'dev'],
-            description: 'Spring profile — selects spring-rag-<profile>.yml overrides from config-repo'
-        )
-        string(
-            name: 'INSTANCE_COUNT',
-            defaultValue: '3',
-            description: 'Number of spring-rag containers to run (nginx upstream must list the same ports)'
-        )
-        string(
-            name: 'BASE_PORT',
-            defaultValue: '8585',
-            description: 'Host port of instance 1; instance N gets BASE_PORT + N - 1'
+            description: 'Passed through to CD — selects spring-rag-<profile>.yml overrides'
         )
     }
 
@@ -37,7 +34,6 @@ pipeline {
         stage('Validate') {
             steps {
                 echo "BUILD_ID : ${params.BUILD_ID}"
-                echo "PROFILE  : ${params.SPRING_PROFILE}"
                 sh 'docker info'
                 sh 'ls -la'
             }
@@ -79,67 +75,16 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+        stage('Trigger CD') {
+            when { expression { params.TRIGGER_CD } }
             steps {
-                withCredentials([
-                    string(credentialsId: 'WEAVIATE_API_KEY', variable: 'WEAVIATE_API_KEY'),
-                    string(credentialsId: 'API_KEY',          variable: 'API_KEY')
-                ]) {
-                    sh """
-                        # Remove the legacy single-instance container if present
-                        docker stop myapp 2>/dev/null || true
-                        docker rm   myapp 2>/dev/null || true
-
-                        # Rolling deploy: replace one instance at a time so nginx
-                        # always has healthy upstreams to fail over to.
-                        i=1
-                        while [ \$i -le ${params.INSTANCE_COUNT} ]; do
-                            PORT=\$(( ${params.BASE_PORT} + i - 1 ))
-                            NAME=spring-rag-\$i
-
-                            docker stop \$NAME 2>/dev/null || true
-                            docker rm   \$NAME 2>/dev/null || true
-                            docker ps -q  --filter publish=\$PORT | xargs -r docker stop
-                            docker ps -aq --filter publish=\$PORT | xargs -r docker rm
-
-                            docker run -d \
-                              --name \$NAME \
-                              --hostname \$NAME \
-                              -p \$PORT:8080 \
-                              -e WEAVIATE_API_KEY=\$WEAVIATE_API_KEY \
-                              -e RAG_WEAVIATE_API_KEY=\$WEAVIATE_API_KEY \
-                              -e API_KEY=\$API_KEY \
-                              -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 \
-                              -e OTEL_RESOURCE_ATTRIBUTES="service.instance.id=\$NAME,service.namespace=spring-rag,host.name=\$NAME,service.version=${params.BUILD_ID}" \
-                              -e CONFIG_SERVER_URL=http://host.docker.internal:8686 \
-                              -e SPRING_PROFILES_ACTIVE=${params.SPRING_PROFILE} \
-                              --add-host=host.docker.internal:host-gateway \
-                              --add-host=ollama:host-gateway \
-                              --add-host=weaviate:host-gateway \
-                              -e BUILD_ID=${params.BUILD_ID} \
-                              --restart unless-stopped \
-                              myapp:${params.BUILD_ID}
-
-                            # Wait until this instance is healthy before replacing the next
-                            # one. Runs inside the app container (busybox wget) — the Jenkins
-                            # agent is itself a container, so its localhost can't reach the
-                            # host-published ports.
-                            t=1
-                            until docker exec \$NAME wget -qO /dev/null http://localhost:8080/actuator/health; do
-                                if [ \$t -ge 30 ]; then
-                                    echo "\$NAME failed to become healthy on port \$PORT"
-                                    docker logs --tail 50 \$NAME || true
-                                    exit 1
-                                fi
-                                t=\$(( t + 1 ))
-                                sleep 2
-                            done
-                            echo "\$NAME healthy on port \$PORT"
-
-                            i=\$(( i + 1 ))
-                        done
-                    """
-                }
+                build job: 'spring-rag-cd',
+                      wait: false,
+                      parameters: [
+                          string(name: 'IMAGE_TAG',      value: "${params.BUILD_ID}"),
+                          string(name: 'TARGET_COLOR',   value: 'auto'),
+                          string(name: 'SPRING_PROFILE', value: "${params.SPRING_PROFILE}")
+                      ]
             }
         }
     }
@@ -149,7 +94,7 @@ pipeline {
             sh 'docker image prune -f || true'
         }
         success {
-            echo "Deployed myapp:${params.BUILD_ID} successfully"
+            echo "Built myapp:${params.BUILD_ID} — CD ${params.TRIGGER_CD ? 'triggered' : 'skipped'}"
         }
         failure {
             echo "Build failed"
