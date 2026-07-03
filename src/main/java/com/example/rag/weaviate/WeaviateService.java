@@ -93,8 +93,13 @@ public class WeaviateService {
     }
 
     private void ensurePropertiesExist(String schemaUrl, String collection, String baseUrl) throws Exception {
-        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(schemaUrl)).GET().build();
-        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp = get(schemaUrl);
+        if (resp.statusCode() != 200) {
+            throw new RuntimeException(
+                    "Weaviate request to " + schemaUrl +
+                    " failed with status " + resp.statusCode() +
+                    ": " + resp.body());
+        }
         JsonNode classSchema = objectMapper.readTree(resp.body());
 
         java.util.Set<String> existing = new java.util.HashSet<>();
@@ -107,8 +112,18 @@ public class WeaviateService {
             if (!existing.contains(prop[0])) {
                 String body = String.format(
                         "{\"name\": \"%s\", \"dataType\": [\"%s\"]}", prop[0], prop[1]);
-                post(baseUrl + "/v1/schema/" + collection + "/properties", body);
-                log.info("Added missing property '{}' to collection '{}'", prop[0], collection);
+                try {
+                    post(baseUrl + "/v1/schema/" + collection + "/properties", body);
+                    log.info("Added missing property '{}' to collection '{}'", prop[0], collection);
+                } catch (RuntimeException e) {
+                    // Another instance may have added it concurrently — Weaviate
+                    // answers 422 "already in use" for an existing property.
+                    if (e.getMessage() != null && e.getMessage().contains("already in use")) {
+                        log.info("Property '{}' already exists on collection '{}'", prop[0], collection);
+                    } else {
+                        throw e;
+                    }
+                }
             }
         }
     }
@@ -329,7 +344,7 @@ public class WeaviateService {
         return response.body();
     }
 
-    private int getStatus(String url) throws Exception {
+    private HttpResponse<String> get(String url) throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .GET();
@@ -339,9 +354,11 @@ public class WeaviateService {
             builder.header("Authorization", "Bearer " + apiKey);
         }
 
-        HttpResponse<String> response =
-                httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-        return response.statusCode();
+        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private int getStatus(String url) throws Exception {
+        return get(url).statusCode();
     }
 
     /** Minimal escaping for inline GraphQL string values. */

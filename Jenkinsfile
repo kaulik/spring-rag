@@ -120,9 +120,12 @@ pipeline {
                               --restart unless-stopped \
                               myapp:${params.BUILD_ID}
 
-                            # Wait until this instance is healthy before replacing the next one
+                            # Wait until this instance is healthy before replacing the next
+                            # one. Runs inside the app container (busybox wget) — the Jenkins
+                            # agent is itself a container, so its localhost can't reach the
+                            # host-published ports.
                             t=1
-                            until curl -sf http://localhost:\$PORT/actuator/health >/dev/null; do
+                            until docker exec \$NAME wget -qO /dev/null http://localhost:8080/actuator/health; do
                                 if [ \$t -ge 30 ]; then
                                     echo "\$NAME failed to become healthy on port \$PORT"
                                     docker logs --tail 50 \$NAME || true
