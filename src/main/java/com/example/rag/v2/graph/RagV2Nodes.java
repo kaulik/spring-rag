@@ -8,16 +8,20 @@ import com.example.rag.service.ResponseSanitizer;
 import com.example.rag.v2.support.RerankScoring;
 import com.example.rag.weaviate.WeaviateService;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.EmbeddingRequest;
+import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.ai.ollama.api.OllamaEmbeddingOptions;
 import org.springframework.stereotype.Component;
@@ -57,6 +61,7 @@ public class RagV2Nodes {
     private final InputGuardrailService guardrailService;
     private final ResponseSanitizer responseSanitizer;
     private final ObservationRegistry observationRegistry;
+    private final MeterRegistry meterRegistry;
     private final ChatModel ollamaChatModelV2;
     private final EmbeddingModel ollamaEmbeddingModelV2;
 
@@ -144,7 +149,7 @@ public class RagV2Nodes {
                 .lowCardinalityKeyValue("inputDocs", String.valueOf(docs.size()))
                 .observe(() -> {
                     try {
-                        String response = chat(RERANK_SYSTEM_PROMPT, prompt, rerankModelName());
+                        String response = chat(RERANK_SYSTEM_PROMPT, prompt, rerankModelName(), "rerank");
                         Map<Integer, Double> scores = RerankScoring.parseScores(response);
                         if (!scores.isEmpty()) {
                             List<RetrievedDoc> sorted = new ArrayList<>(docs);
@@ -181,7 +186,7 @@ public class RagV2Nodes {
                 "Question: " + state.question();
 
         String raw = Observation.createNotStarted("rag2.generate", observationRegistry)
-                .observe(() -> chat(ANSWER_SYSTEM_PROMPT, prompt, props.getOllama().getChatModel()));
+                .observe(() -> chat(ANSWER_SYSTEM_PROMPT, prompt, props.getOllama().getChatModel(), "generate"));
         String answer = responseSanitizer.sanitize(raw);
         log.info("[RAGv2] generate() answer len={}", answer.length());
         return Map.of("answer", answer, "reranked", docs);
@@ -197,23 +202,54 @@ public class RagV2Nodes {
                 : props.getOllama().getChatModel();
     }
 
-    private String chat(String systemPrompt, String userPrompt, String model) {
+    private String chat(String systemPrompt, String userPrompt, String model, String stage) {
         Prompt prompt = new Prompt(
                 List.of(new SystemMessage(systemPrompt), new UserMessage(userPrompt)),
                 OllamaChatOptions.builder().model(model).build());
-        return ollamaChatModelV2.call(prompt).getResult().getOutput().getText();
+        ChatResponse response = ollamaChatModelV2.call(prompt);
+        recordTokens(model, stage, response);
+        return response.getResult().getOutput().getText();
     }
 
     private List<Double> embed(String text) {
         EmbeddingRequest request = new EmbeddingRequest(
                 List.of(text),
                 OllamaEmbeddingOptions.builder().model(props.getOllama().getEmbeddingModel()).build());
-        float[] output = ollamaEmbeddingModelV2.call(request).getResults().get(0).getOutput();
+        EmbeddingResponse response = ollamaEmbeddingModelV2.call(request);
+        recordTokens(props.getOllama().getEmbeddingModel(), "embed", response.getMetadata().getUsage());
+        float[] output = response.getResults().get(0).getOutput();
         List<Double> vector = new ArrayList<>(output.length);
         for (float f : output) {
             vector.add((double) f);
         }
         return vector;
+    }
+
+    /**
+     * Same metric shape as v1's OllamaClient (ollama.tokens, tagged
+     * model/stage/direction) so token spend is comparable across pipelines
+     * in the OTLP backend regardless of which client made the call.
+     */
+    private void recordTokens(String model, String stage, ChatResponse response) {
+        if (response.getMetadata() != null) {
+            recordTokens(model, stage, response.getMetadata().getUsage());
+        }
+    }
+
+    private void recordTokens(String model, String stage, Usage usage) {
+        if (usage == null) {
+            return;
+        }
+        int promptTokens = usage.getPromptTokens() != null ? usage.getPromptTokens() : 0;
+        int completionTokens = usage.getCompletionTokens() != null ? usage.getCompletionTokens() : 0;
+        if (promptTokens > 0) {
+            meterRegistry.counter("ollama.tokens", "model", model, "stage", stage, "direction", "prompt")
+                    .increment(promptTokens);
+        }
+        if (completionTokens > 0) {
+            meterRegistry.counter("ollama.tokens", "model", model, "stage", stage, "direction", "completion")
+                    .increment(completionTokens);
+        }
     }
 
     private int topK(List<RetrievedDoc> docs) {

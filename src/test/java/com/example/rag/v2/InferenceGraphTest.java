@@ -10,6 +10,7 @@ import com.example.rag.v2.graph.RagV2GraphFactory;
 import com.example.rag.v2.graph.RagV2Nodes;
 import com.example.rag.weaviate.WeaviateService;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.RunnableConfig;
@@ -85,7 +86,8 @@ class InferenceGraphTest {
 
         RagV2Nodes nodes = new RagV2Nodes(
                 props, new ChunkingService(props), weaviateService, guardrailService,
-                responseSanitizer, ObservationRegistry.create(), chatModel, embeddingModel);
+                responseSanitizer, ObservationRegistry.create(), new SimpleMeterRegistry(),
+                chatModel, embeddingModel);
         factory = new RagV2GraphFactory(nodes);
     }
 

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ public class OllamaClient {
 
     private final RagProperties props;
     private final ObservationRegistry observationRegistry;
+    private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -76,6 +78,7 @@ public class OllamaClient {
                 throw new RuntimeException("Ollama returned an empty embedding vector for model=" + model);
             }
             log.info("[Ollama] embed() ← vector dims={}", result.size());
+            recordTokens(model, "embed", root);
             return result;
 
         } catch (RuntimeException re) {
@@ -94,7 +97,7 @@ public class OllamaClient {
         String model = props.getOllama().getChatModel();
         return Observation.createNotStarted("ollama.chat", observationRegistry)
                 .lowCardinalityKeyValue("model", model)
-                .observe(() -> doChat(systemPrompt, userPrompt, model));
+                .observe(() -> doChat(systemPrompt, userPrompt, model, "generate"));
     }
 
     public String rerank(String systemPrompt, String userPrompt) {
@@ -104,10 +107,10 @@ public class OllamaClient {
                 : props.getOllama().getChatModel();
         return Observation.createNotStarted("ollama.rerank", observationRegistry)
                 .lowCardinalityKeyValue("model", model)
-                .observe(() -> doChat(systemPrompt, userPrompt, model));
+                .observe(() -> doChat(systemPrompt, userPrompt, model, "rerank"));
     }
 
-    private String doChat(String systemPrompt, String userPrompt, String model) {
+    private String doChat(String systemPrompt, String userPrompt, String model, String stage) {
         String url = props.getOllama().getBaseUrl() + "/api/chat";
         log.debug("[Ollama] chat() → POST {} | model={} | promptLen={}", url, model, userPrompt.length());
         try {
@@ -145,6 +148,7 @@ public class OllamaClient {
             }
 
             JsonNode root = objectMapper.readTree(response.body());
+            recordTokens(model, stage, root);
             JsonNode content = root.path("message").path("content");
             if (!content.isMissingNode()) {
                 String reply = content.asText();
@@ -160,6 +164,25 @@ public class OllamaClient {
         } catch (Exception e) {
             log.error("[Ollama] chat() exception: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to call Ollama chat", e);
+        }
+    }
+
+    /**
+     * Ollama's non-streaming /api/chat and /api/embeddings responses carry
+     * prompt_eval_count (input tokens) and eval_count (output tokens) at the
+     * top level when the server reports them. Recorded as counters so token
+     * spend is visible per model/stage without parsing OTLP spans by hand.
+     */
+    private void recordTokens(String model, String stage, JsonNode root) {
+        int promptTokens = root.path("prompt_eval_count").asInt(0);
+        int completionTokens = root.path("eval_count").asInt(0);
+        if (promptTokens > 0) {
+            meterRegistry.counter("ollama.tokens", "model", model, "stage", stage, "direction", "prompt")
+                    .increment(promptTokens);
+        }
+        if (completionTokens > 0) {
+            meterRegistry.counter("ollama.tokens", "model", model, "stage", stage, "direction", "completion")
+                    .increment(completionTokens);
         }
     }
 }
