@@ -115,6 +115,7 @@ pipeline {
                               -e OTEL_RESOURCE_ATTRIBUTES="service.instance.id=\$NAME,service.namespace=spring-rag,host.name=\$NAME,service.version=${params.IMAGE_TAG},deployment.color=${env.TARGET}" \
                               -e CONFIG_SERVER_URL=http://host.docker.internal:8686 \
                               -e SPRING_PROFILES_ACTIVE=${params.SPRING_PROFILE} \
+                              -e JAVA_TOOL_OPTIONS="-Xmx768m" \
                               --add-host=host.docker.internal:host-gateway \
                               --add-host=ollama:host-gateway \
                               --add-host=weaviate:host-gateway \
@@ -204,10 +205,12 @@ ${servers}
                 }
             }
             steps {
-                sh """
-                    docker ps -q --filter name=spring-rag-${env.LIVE_COLOR}- | xargs -r docker stop
-                    echo "Old color ${env.LIVE_COLOR} stopped (containers kept for docker start rollback)"
-                """
+                build job: 'spring-rag-cleanup',
+                      wait: false,
+                      parameters: [
+                          string(name: 'COLOR', value: env.LIVE_COLOR)
+                      ]
+                echo "Triggered spring-rag-cleanup for color ${env.LIVE_COLOR} (containers kept for docker start rollback)"
             }
         }
     }

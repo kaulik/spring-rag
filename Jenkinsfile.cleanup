@@ -1,0 +1,27 @@
+// Cleanup pipeline: stops a blue-green color's containers. Triggered
+// conditionally from spring-rag-cd's 'Retire old color' stage when
+// RETIRE_OLD_COLOR=true, or run standalone/manually against either color.
+// Pure relocation of what used to be an inline stage in Jenkinsfile.cd —
+// no image/volume pruning here by design.
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'COLOR',
+            choices: ['blue', 'green'],
+            description: 'Which color\'s spring-rag containers to stop'
+        )
+    }
+
+    stages {
+        stage('Stop color') {
+            steps {
+                sh """
+                    docker ps -q --filter name=spring-rag-${params.COLOR}- | xargs -r docker stop
+                    echo "Color ${params.COLOR} stopped (containers kept for docker start rollback)"
+                """
+            }
+        }
+    }
+}
