@@ -2,6 +2,7 @@ package com.example.rag.v2.service;
 
 import com.example.rag.v2.graph.IngestState;
 import com.example.rag.v2.graph.InferenceState;
+import com.example.rag.v2.kafka.RagEventPublisher;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -26,13 +27,16 @@ public class RagV2Service {
     private final CompiledGraph<IngestState> ingestGraph;
     private final CompiledGraph<InferenceState> inferenceGraph;
     private final ObservationRegistry observationRegistry;
+    private final RagEventPublisher ragEventPublisher;
 
     public RagV2Service(@Qualifier("ingestGraphV2") CompiledGraph<IngestState> ingestGraph,
                         @Qualifier("inferenceGraphV2") CompiledGraph<InferenceState> inferenceGraph,
-                        ObservationRegistry observationRegistry) {
+                        ObservationRegistry observationRegistry,
+                        RagEventPublisher ragEventPublisher) {
         this.ingestGraph = ingestGraph;
         this.inferenceGraph = inferenceGraph;
         this.observationRegistry = observationRegistry;
+        this.ragEventPublisher = ragEventPublisher;
     }
 
     public record RagV2Result(String answer, List<RetrievedDoc> sources) {}
@@ -52,7 +56,10 @@ public class RagV2Service {
         return Observation.createNotStarted("rag2.answer", observationRegistry)
                 .observe(() -> inferenceGraph
                         .invoke(Map.of("question", question), RunnableConfig.builder().build())
-                        .map(state -> new RagV2Result(state.answer(), state.reranked().orElse(List.of())))
+                        .map(state -> {
+                            ragEventPublisher.publish(state);
+                            return new RagV2Result(state.answer(), state.reranked().orElse(List.of()));
+                        })
                         .orElseThrow(() -> new IllegalStateException("Inference graph produced no final state")));
     }
 }
