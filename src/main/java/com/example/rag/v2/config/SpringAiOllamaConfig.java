@@ -11,6 +11,7 @@ import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.web.client.RestClient;
 
 import java.net.http.HttpClient;
@@ -37,6 +38,20 @@ public class SpringAiOllamaConfig {
                         .model(props.getOllama().getChatModel())
                         .build())
                 .observationRegistry(observationRegistry)
+                .retryTemplate(noRetryTemplate())
+                .build();
+    }
+
+    /**
+     * Spring AI's default retry template (RetryUtils.DEFAULT_RETRY_TEMPLATE)
+     * makes up to 10 attempts with exponential backoff capped at 3 minutes
+     * per wait — worst case ~19 minutes of retrying before a response, which
+     * masked repeated Ollama runner crashes as unpredictable multi-minute
+     * latency instead of a fast, visible failure. One attempt, no retry.
+     */
+    private RetryTemplate noRetryTemplate() {
+        return RetryTemplate.builder()
+                .maxAttempts(1)
                 .build();
     }
 
