@@ -28,7 +28,7 @@ pipeline {
         )
         string(
             name: 'INSTANCE_COUNT',
-            defaultValue: '3',
+            defaultValue: '2',
             description: 'Containers per color'
         )
         booleanParam(
