@@ -24,13 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * LangGraph4j node implementations for the v2 pipeline. Each node mirrors one
- * step of RagService (v1) and delegates to the same shared beans — only the
- * model calls go through Spring AI instead of the hand-rolled OllamaClient.
- * Observations are named rag2.* so both pipelines can be compared in the
- * OTLP backend.
- */
+/** LangGraph4j node implementations for the pipeline graph (ingest + inference). */
 @Slf4j
 @Component
 @RequiredArgsConstructor

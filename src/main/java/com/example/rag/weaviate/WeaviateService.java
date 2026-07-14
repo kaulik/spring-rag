@@ -132,10 +132,7 @@ public class WeaviateService {
     // Ingest
     // -------------------------------------------------------------------------
 
-    /**
-     * Batch-insert chunks into Weaviate together with their pre-computed
-     * embedding vectors (supplied by OllamaClient).
-     */
+    /** Batch-insert chunks into Weaviate together with their pre-computed embedding vectors. */
     public void ingestChunks(List<Chunk> chunks, List<List<Double>> embeddings) {
         if (chunks.isEmpty()) return;
         if (embeddings.size() != chunks.size()) {

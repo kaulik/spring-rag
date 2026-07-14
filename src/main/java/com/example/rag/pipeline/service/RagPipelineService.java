@@ -15,11 +15,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Facade over the compiled v2 graphs — the LangGraph4j counterpart of
- * RagService. Same inputs/outputs as v1 so /api/v2 responses stay
- * contract-identical to /api.
- */
+/** Facade over the compiled pipeline graphs (LangGraph4j ingest + inference). */
 @Slf4j
 @Service
 public class RagPipelineService {

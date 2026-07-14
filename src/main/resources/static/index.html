@@ -108,28 +108,6 @@
       flex: 1;
     }
 
-    /* Tabs */
-    .tabs {
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 1.25rem;
-    }
-    .tab {
-      padding: 0.4rem 1rem;
-      border-radius: 999px;
-      border: 1.5px solid #cbd5e1;
-      background: white;
-      font-size: 0.85rem;
-      font-weight: 500;
-      cursor: pointer;
-      color: #475569;
-      transition: background .12s, color .12s;
-    }
-    .tab.active {
-      background: #16a34a;
-      color: white;
-      border-color: #16a34a;
-    }
     .panel { display: none; }
     .panel.active { display: block; }
 
@@ -219,52 +197,10 @@
     <input type="password" id="api-key" placeholder="Enter your API key" />
   </div>
 
-  <!-- Query card with tabs -->
+  <!-- Query card -->
   <div class="card">
-    <div class="tabs">
-      <button class="tab active" onclick="switchTab('ctx')">Context + Question</button>
-      <button class="tab" onclick="switchTab('stored')">Query Stored Docs</button>
-      <button class="tab" onclick="switchTab('v2')">v2 · LangGraph</button>
-    </div>
-
-    <!-- Panel A: paste text + ingest -->
-    <div id="panel-ctx" class="panel active">
-      <div class="card-title">Paste context &amp; ingest into Weaviate</div>
-
-      <label for="ctx-source">Source label <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
-      <input type="text" id="ctx-source"
-             placeholder="e.g. meeting-notes, patient-summary" />
-
-      <label for="ctx-text">Context text</label>
-      <textarea id="ctx-text" rows="9"
-        placeholder="Paste the full text you want to ingest into Weaviate..."></textarea>
-
-      <div class="row">
-        <button class="btn-primary" id="ctx-btn" onclick="runIngest()">
-          Ingest
-        </button>
-        <span class="status" id="ctx-status"></span>
-      </div>
-    </div>
-
-    <!-- Panel B: stored docs -->
-    <div id="panel-stored" class="panel">
-      <div class="card-title">Query already-stored documents</div>
-
-      <label for="stored-query">Your question</label>
-      <textarea id="stored-query" rows="3"
-        placeholder="Ask anything about documents already in Weaviate..."></textarea>
-
-      <div class="row">
-        <button class="btn-primary" id="stored-btn" onclick="runStoredQuery()">
-          Run Query
-        </button>
-        <span class="status" id="stored-status"></span>
-      </div>
-    </div>
-
-    <!-- Panel C: v2 pipeline (Spring AI + LangGraph4j) -->
-    <div id="panel-v2" class="panel">
+    <!-- v2 pipeline (Spring AI + LangGraph4j) -->
+    <div id="panel-v2" class="panel active">
       <div class="card-title">Spring AI + LangGraph4j pipeline (/api/v2)</div>
 
       <label for="v2-source">Source label <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
@@ -311,20 +247,6 @@
 
 <script>
   const API = '';   // same origin; change to 'http://localhost:8080' if CORS needed
-
-  // --------------------------------------------------------------------------
-  // Tab switching
-  // --------------------------------------------------------------------------
-  const TAB_NAMES = ['ctx', 'stored', 'v2'];
-
-  function switchTab(name) {
-    document.querySelectorAll('.tab').forEach((t, i) => {
-      t.classList.toggle('active', TAB_NAMES[i] === name);
-    });
-    TAB_NAMES.forEach(n => {
-      document.getElementById('panel-' + n).classList.toggle('active', n === name);
-    });
-  }
 
   // --------------------------------------------------------------------------
   // Helpers
@@ -384,69 +306,6 @@
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
-  }
-
-  // --------------------------------------------------------------------------
-  // Ingest only (Context tab)
-  // --------------------------------------------------------------------------
-  async function runIngest() {
-    const contextText = document.getElementById('ctx-text').value.trim();
-    const source      = document.getElementById('ctx-source').value.trim() || 'frontend';
-
-    if (!contextText) { setStatus('ctx-status', '⚠ Paste some context text first.'); return; }
-
-    const btn = document.getElementById('ctx-btn');
-    btn.disabled = true;
-    setStatus('ctx-status', loading());
-
-    try {
-      const apiKey = document.getElementById('api-key').value.trim();
-      const resp = await fetch(API + '/api/ingest', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-        body:    JSON.stringify({ contextText, source }),
-      });
-
-      if (!resp.ok) throw new Error('HTTP ' + resp.status + ' — ' + await resp.text());
-      const data = await resp.json();
-
-      setStatus('ctx-status', `✅ Done &nbsp;·&nbsp; ${data.ingestedChunks} chunks ingested`);
-    } catch (err) {
-      setStatus('ctx-status', '❌ ' + err.message);
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // Stored docs query
-  // --------------------------------------------------------------------------
-  async function runStoredQuery() {
-    const query = document.getElementById('stored-query').value.trim();
-    if (!query) { setStatus('stored-status', '⚠ Enter a question.'); return; }
-
-    const btn = document.getElementById('stored-btn');
-    btn.disabled = true;
-    setStatus('stored-status', loading());
-    document.getElementById('answer-card').style.display = 'none';
-
-    try {
-      const apiKey = document.getElementById('api-key').value.trim();
-      const resp = await fetch(API + '/api/query', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-        body:    JSON.stringify({ query }),
-      });
-
-      if (!resp.ok) throw new Error('HTTP ' + resp.status + ' — ' + await resp.text());
-      const data = await resp.json();
-      setStatus('stored-status', 'Done.');
-      showAnswer(data);
-    } catch (err) {
-      setStatus('stored-status', '❌ ' + err.message);
-    } finally {
-      btn.disabled = false;
-    }
   }
 
   // --------------------------------------------------------------------------

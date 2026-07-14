@@ -9,14 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Rerank prompt construction and score parsing for the v2 pipeline.
- *
- * Deliberate copy of RagService's private rerank prompt/parse logic (see
- * RagService.rerank and RagService.parseScores) so v1 stays byte-identical
- * during the parallel-run phase. Any change here must be mirrored there
- * until v1 is retired.
- */
+/** Rerank prompt construction and score parsing for the pipeline graph. */
 @Slf4j
 public final class RerankScoring {
 
