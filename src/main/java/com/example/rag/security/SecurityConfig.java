@@ -1,6 +1,6 @@
 package com.example.rag.security;
 
-import com.example.rag.config.GuardrailProperties;
+import com.example.rag.common.config.GuardrailProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;

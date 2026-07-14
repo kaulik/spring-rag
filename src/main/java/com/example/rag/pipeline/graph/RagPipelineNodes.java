@@ -1,10 +1,10 @@
 package com.example.rag.pipeline.graph;
 
-import com.example.rag.config.RagProperties;
+import com.example.rag.common.config.RagProperties;
 import com.example.rag.security.InputGuardrailService;
-import com.example.rag.service.ChunkingService;
-import com.example.rag.service.ChunkingService.Chunk;
-import com.example.rag.service.ResponseSanitizer;
+import com.example.rag.common.service.ChunkingService;
+import com.example.rag.common.service.ChunkingService.Chunk;
+import com.example.rag.common.service.ResponseSanitizer;
 import com.example.rag.pipeline.support.OllamaCalls;
 import com.example.rag.pipeline.support.RerankScoring;
 import com.example.rag.pipeline.support.SystemPrompts;

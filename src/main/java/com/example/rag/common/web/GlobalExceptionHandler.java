@@ -1,4 +1,4 @@
-package com.example.rag.web;
+package com.example.rag.common.web;
 
 import com.example.rag.security.InputGuardrailService.InputValidationException;
 import lombok.extern.slf4j.Slf4j;

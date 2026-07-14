@@ -1,7 +1,7 @@
 package com.example.rag.weaviate;
 
-import com.example.rag.config.RagProperties;
-import com.example.rag.service.ChunkingService.Chunk;
+import com.example.rag.common.config.RagProperties;
+import com.example.rag.common.service.ChunkingService.Chunk;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;

@@ -6,7 +6,7 @@ import com.example.rag.agent.graph.OrchestratorGraphFactory;
 import com.example.rag.agent.graph.OrchestratorState;
 import com.example.rag.agent.memory.TaskStateRepository;
 import com.example.rag.agent.tools.StockApiTools;
-import com.example.rag.config.RagProperties;
+import com.example.rag.common.config.RagProperties;
 import com.example.rag.pipeline.service.RagPipelineService;
 import com.example.rag.pipeline.service.RagPipelineService.RagPipelineResult;
 import com.example.rag.pipeline.support.OllamaCalls;

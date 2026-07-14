@@ -1,11 +1,11 @@
 package com.example.rag.mcp;
 
-import com.example.rag.config.RagProperties;
+import com.example.rag.common.config.RagProperties;
 import com.example.rag.pipeline.support.OllamaCalls;
 import com.example.rag.pipeline.support.RerankScoring;
 import com.example.rag.pipeline.support.SystemPrompts;
 import com.example.rag.security.InputGuardrailService;
-import com.example.rag.service.ResponseSanitizer;
+import com.example.rag.common.service.ResponseSanitizer;
 import com.example.rag.weaviate.WeaviateService;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import io.micrometer.observation.Observation;

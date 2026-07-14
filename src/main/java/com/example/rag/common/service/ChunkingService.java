@@ -1,6 +1,6 @@
-package com.example.rag.service;
+package com.example.rag.common.service;
 
-import com.example.rag.config.RagProperties;
+import com.example.rag.common.config.RagProperties;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;

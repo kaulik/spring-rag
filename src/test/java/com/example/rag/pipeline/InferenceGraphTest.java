@@ -1,9 +1,9 @@
 package com.example.rag.pipeline;
 
-import com.example.rag.config.RagProperties;
+import com.example.rag.common.config.RagProperties;
 import com.example.rag.security.InputGuardrailService;
-import com.example.rag.service.ChunkingService;
-import com.example.rag.service.ResponseSanitizer;
+import com.example.rag.common.service.ChunkingService;
+import com.example.rag.common.service.ResponseSanitizer;
 import com.example.rag.pipeline.graph.IngestState;
 import com.example.rag.pipeline.graph.InferenceState;
 import com.example.rag.pipeline.graph.RagGraphFactory;

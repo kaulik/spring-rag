@@ -4,7 +4,7 @@ import com.example.rag.agent.config.AgentProperties;
 import com.example.rag.agent.memory.TaskStateRepository;
 import com.example.rag.agent.memory.Turn;
 import com.example.rag.agent.tools.StockApiTools;
-import com.example.rag.config.RagProperties;
+import com.example.rag.common.config.RagProperties;
 import com.example.rag.pipeline.service.RagPipelineService;
 import com.example.rag.pipeline.support.OllamaCalls;
 import io.micrometer.observation.Observation;

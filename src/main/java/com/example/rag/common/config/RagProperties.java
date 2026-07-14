@@ -1,4 +1,4 @@
-package com.example.rag.config;
+package com.example.rag.common.config;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
