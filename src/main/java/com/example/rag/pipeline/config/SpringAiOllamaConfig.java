@@ -1,4 +1,4 @@
-package com.example.rag.v2.config;
+package com.example.rag.pipeline.config;
 
 import com.example.rag.config.RagProperties;
 import io.micrometer.observation.ObservationRegistry;
@@ -31,7 +31,7 @@ public class SpringAiOllamaConfig {
 
     @Bean
     @RefreshScope
-    public OllamaChatModel ollamaChatModelV2(RagProperties props, ObservationRegistry observationRegistry) {
+    public OllamaChatModel ollamaChatModel(RagProperties props, ObservationRegistry observationRegistry) {
         return OllamaChatModel.builder()
                 .ollamaApi(buildApi(props))
                 .defaultOptions(OllamaChatOptions.builder()
@@ -57,7 +57,7 @@ public class SpringAiOllamaConfig {
 
     @Bean
     @RefreshScope
-    public OllamaEmbeddingModel ollamaEmbeddingModelV2(RagProperties props, ObservationRegistry observationRegistry) {
+    public OllamaEmbeddingModel ollamaEmbeddingModel(RagProperties props, ObservationRegistry observationRegistry) {
         return OllamaEmbeddingModel.builder()
                 .ollamaApi(buildApi(props))
                 .defaultOptions(OllamaEmbeddingOptions.builder()

@@ -1,8 +1,8 @@
-package com.example.rag.v2.service;
+package com.example.rag.pipeline.service;
 
-import com.example.rag.v2.graph.IngestState;
-import com.example.rag.v2.graph.InferenceState;
-import com.example.rag.v2.kafka.RagEventPublisher;
+import com.example.rag.pipeline.graph.IngestState;
+import com.example.rag.pipeline.graph.InferenceState;
+import com.example.rag.pipeline.kafka.RagEventPublisher;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -22,15 +22,15 @@ import java.util.Map;
  */
 @Slf4j
 @Service
-public class RagV2Service {
+public class RagPipelineService {
 
     private final CompiledGraph<IngestState> ingestGraph;
     private final CompiledGraph<InferenceState> inferenceGraph;
     private final ObservationRegistry observationRegistry;
     private final RagEventPublisher ragEventPublisher;
 
-    public RagV2Service(@Qualifier("ingestGraphV2") CompiledGraph<IngestState> ingestGraph,
-                        @Qualifier("inferenceGraphV2") CompiledGraph<InferenceState> inferenceGraph,
+    public RagPipelineService(@Qualifier("ingestGraph") CompiledGraph<IngestState> ingestGraph,
+                        @Qualifier("inferenceGraph") CompiledGraph<InferenceState> inferenceGraph,
                         ObservationRegistry observationRegistry,
                         RagEventPublisher ragEventPublisher) {
         this.ingestGraph = ingestGraph;
@@ -39,7 +39,7 @@ public class RagV2Service {
         this.ragEventPublisher = ragEventPublisher;
     }
 
-    public record RagV2Result(String answer, List<RetrievedDoc> sources) {}
+    public record RagPipelineResult(String answer, List<RetrievedDoc> sources) {}
 
     /** Chunk, embed, and store raw text. @return number of chunks ingested. */
     public int ingestContextText(String text, String source) {
@@ -52,13 +52,13 @@ public class RagV2Service {
     }
 
     /** Hybrid RAG + rerank over already-stored docs via the inference graph. */
-    public RagV2Result answerQuestion(String question) {
+    public RagPipelineResult answerQuestion(String question) {
         return Observation.createNotStarted("rag2.answer", observationRegistry)
                 .observe(() -> inferenceGraph
                         .invoke(Map.of("question", question), RunnableConfig.builder().build())
                         .map(state -> {
                             ragEventPublisher.publish(state);
-                            return new RagV2Result(state.answer(), state.reranked().orElse(List.of()));
+                            return new RagPipelineResult(state.answer(), state.reranked().orElse(List.of()));
                         })
                         .orElseThrow(() -> new IllegalStateException("Inference graph produced no final state")));
     }

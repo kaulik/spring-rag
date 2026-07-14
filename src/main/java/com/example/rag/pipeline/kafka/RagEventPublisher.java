@@ -1,6 +1,6 @@
-package com.example.rag.v2.kafka;
+package com.example.rag.pipeline.kafka;
 
-import com.example.rag.v2.graph.InferenceState;
+import com.example.rag.pipeline.graph.InferenceState;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

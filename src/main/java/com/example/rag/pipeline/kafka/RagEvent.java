@@ -1,4 +1,4 @@
-package com.example.rag.v2.kafka;
+package com.example.rag.pipeline.kafka;
 
 import java.util.List;
 

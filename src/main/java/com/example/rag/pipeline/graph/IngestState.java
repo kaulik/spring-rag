@@ -1,4 +1,4 @@
-package com.example.rag.v2.graph;
+package com.example.rag.pipeline.graph;
 
 import com.example.rag.service.ChunkingService.Chunk;
 import org.bsc.langgraph4j.state.AgentState;

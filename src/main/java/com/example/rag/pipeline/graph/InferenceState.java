@@ -1,4 +1,4 @@
-package com.example.rag.v2.graph;
+package com.example.rag.pipeline.graph;
 
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import org.bsc.langgraph4j.state.AgentState;

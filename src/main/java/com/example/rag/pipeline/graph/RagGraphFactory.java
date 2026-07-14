@@ -1,4 +1,4 @@
-package com.example.rag.v2.graph;
+package com.example.rag.pipeline.graph;
 
 import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.GraphStateException;
@@ -13,14 +13,14 @@ import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 
 /**
  * Builds the two v2 graphs. Plain class (no Spring annotations) so graph
- * wiring is unit-testable without a context; RagV2GraphConfig exposes the
+ * wiring is unit-testable without a context; RagGraphConfig exposes the
  * compiled graphs as beans.
  */
-public class RagV2GraphFactory {
+public class RagGraphFactory {
 
-    private final RagV2Nodes nodes;
+    private final RagPipelineNodes nodes;
 
-    public RagV2GraphFactory(RagV2Nodes nodes) {
+    public RagGraphFactory(RagPipelineNodes nodes) {
         this.nodes = nodes;
     }
 

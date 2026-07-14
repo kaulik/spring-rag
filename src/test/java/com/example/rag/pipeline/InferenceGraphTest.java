@@ -1,13 +1,13 @@
-package com.example.rag.v2;
+package com.example.rag.pipeline;
 
 import com.example.rag.config.RagProperties;
 import com.example.rag.security.InputGuardrailService;
 import com.example.rag.service.ChunkingService;
 import com.example.rag.service.ResponseSanitizer;
-import com.example.rag.v2.graph.IngestState;
-import com.example.rag.v2.graph.InferenceState;
-import com.example.rag.v2.graph.RagV2GraphFactory;
-import com.example.rag.v2.graph.RagV2Nodes;
+import com.example.rag.pipeline.graph.IngestState;
+import com.example.rag.pipeline.graph.InferenceState;
+import com.example.rag.pipeline.graph.RagGraphFactory;
+import com.example.rag.pipeline.graph.RagPipelineNodes;
 import com.example.rag.weaviate.WeaviateService;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -52,7 +52,7 @@ class InferenceGraphTest {
     private WeaviateService weaviateService;
     private InputGuardrailService guardrailService;
     private ResponseSanitizer responseSanitizer;
-    private RagV2GraphFactory factory;
+    private RagGraphFactory factory;
 
     @BeforeEach
     void setUp() {
@@ -84,11 +84,11 @@ class InferenceGraphTest {
         when(weaviateService.hybridSearch(any(), anyList()))
                 .thenReturn(List.of(DOC1, DOC2, DOC3));
 
-        RagV2Nodes nodes = new RagV2Nodes(
+        RagPipelineNodes nodes = new RagPipelineNodes(
                 props, new ChunkingService(props), weaviateService, guardrailService,
                 responseSanitizer, ObservationRegistry.create(), new SimpleMeterRegistry(),
                 chatModel, embeddingModel);
-        factory = new RagV2GraphFactory(nodes);
+        factory = new RagGraphFactory(nodes);
     }
 
     private static ChatResponse chatResponse(String text) {

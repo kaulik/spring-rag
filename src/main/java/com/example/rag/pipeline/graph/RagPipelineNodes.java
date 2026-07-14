@@ -1,11 +1,11 @@
-package com.example.rag.v2.graph;
+package com.example.rag.pipeline.graph;
 
 import com.example.rag.config.RagProperties;
 import com.example.rag.security.InputGuardrailService;
 import com.example.rag.service.ChunkingService;
 import com.example.rag.service.ChunkingService.Chunk;
 import com.example.rag.service.ResponseSanitizer;
-import com.example.rag.v2.support.RerankScoring;
+import com.example.rag.pipeline.support.RerankScoring;
 import com.example.rag.weaviate.WeaviateService;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class RagV2Nodes {
+public class RagPipelineNodes {
 
     // Kept identical to RagService (v1) for answer parity.
     static final String ANSWER_SYSTEM_PROMPT =
@@ -62,8 +62,8 @@ public class RagV2Nodes {
     private final ResponseSanitizer responseSanitizer;
     private final ObservationRegistry observationRegistry;
     private final MeterRegistry meterRegistry;
-    private final ChatModel ollamaChatModelV2;
-    private final EmbeddingModel ollamaEmbeddingModelV2;
+    private final ChatModel ollamaChatModel;
+    private final EmbeddingModel ollamaEmbeddingModel;
 
     // ── Ingest graph nodes ───────────────────────────────────────────────────
 
@@ -206,7 +206,7 @@ public class RagV2Nodes {
         Prompt prompt = new Prompt(
                 List.of(new SystemMessage(systemPrompt), new UserMessage(userPrompt)),
                 OllamaChatOptions.builder().model(model).build());
-        ChatResponse response = ollamaChatModelV2.call(prompt);
+        ChatResponse response = ollamaChatModel.call(prompt);
         recordTokens(model, stage, response);
         return response.getResult().getOutput().getText();
     }
@@ -215,7 +215,7 @@ public class RagV2Nodes {
         EmbeddingRequest request = new EmbeddingRequest(
                 List.of(text),
                 OllamaEmbeddingOptions.builder().model(props.getOllama().getEmbeddingModel()).build());
-        EmbeddingResponse response = ollamaEmbeddingModelV2.call(request);
+        EmbeddingResponse response = ollamaEmbeddingModel.call(request);
         recordTokens(props.getOllama().getEmbeddingModel(), "embed", response.getMetadata().getUsage());
         float[] output = response.getResults().get(0).getOutput();
         List<Double> vector = new ArrayList<>(output.length);

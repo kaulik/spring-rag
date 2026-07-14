@@ -1,4 +1,4 @@
-package com.example.rag.v2.support;
+package com.example.rag.pipeline.support;
 
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import com.fasterxml.jackson.databind.JsonNode;

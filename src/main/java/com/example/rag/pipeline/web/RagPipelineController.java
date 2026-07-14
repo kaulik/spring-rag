@@ -1,8 +1,8 @@
-package com.example.rag.v2.web;
+package com.example.rag.pipeline.web;
 
 import com.example.rag.security.InputGuardrailService;
-import com.example.rag.v2.service.RagV2Service;
-import com.example.rag.v2.service.RagV2Service.RagV2Result;
+import com.example.rag.pipeline.service.RagPipelineService;
+import com.example.rag.pipeline.service.RagPipelineService.RagPipelineResult;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -24,9 +24,9 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v2")
 @RequiredArgsConstructor
-public class RagV2Controller {
+public class RagPipelineController {
 
-    private final RagV2Service ragV2Service;
+    private final RagPipelineService ragPipelineService;
     private final InputGuardrailService inputGuardrailService;
 
     // -------------------------------------------------------------------------
@@ -79,7 +79,7 @@ public class RagV2Controller {
     public ResponseEntity<QueryResponse> query(@Valid @RequestBody QueryRequest req) {
         inputGuardrailService.validateQuery(req.getQuery());
         log.info("POST /api/v2/query — queryLen={}", req.getQuery().length());
-        RagV2Result result = ragV2Service.answerQuestion(req.getQuery());
+        RagPipelineResult result = ragPipelineService.answerQuestion(req.getQuery());
 
         QueryResponse resp = new QueryResponse();
         resp.setAnswer(result.answer());
@@ -95,7 +95,7 @@ public class RagV2Controller {
                 : req.getSource().trim();
         log.info("POST /api/v2/ingest — source='{}', contextLen={}", source, req.getContextText().length());
 
-        int chunks = ragV2Service.ingestContextText(req.getContextText(), source);
+        int chunks = ragPipelineService.ingestContextText(req.getContextText(), source);
 
         IngestResponse resp = new IngestResponse();
         resp.setIngestedChunks(chunks);
@@ -115,8 +115,8 @@ public class RagV2Controller {
                 ? "frontend"
                 : req.getSource().trim();
 
-        int chunks = ragV2Service.ingestContextText(req.getContextText(), source);
-        RagV2Result result = ragV2Service.answerQuestion(req.getQuery());
+        int chunks = ragPipelineService.ingestContextText(req.getContextText(), source);
+        RagPipelineResult result = ragPipelineService.answerQuestion(req.getQuery());
 
         QueryResponse resp = new QueryResponse();
         resp.setAnswer(result.answer());
