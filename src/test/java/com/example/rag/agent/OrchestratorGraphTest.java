@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -54,6 +55,7 @@ class OrchestratorGraphTest {
         AgentProperties agentProps = new AgentProperties();
 
         chatModel = mock(ChatModel.class);
+        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
         ragPipelineService = mock(RagPipelineService.class);
         taskStateRepository = mock(TaskStateRepository.class);
         StockApiTools stockApiTools = new StockApiTools(
@@ -62,7 +64,7 @@ class OrchestratorGraphTest {
 
         AgentNodes nodes = new AgentNodes(
                 ragProps, agentProps, ObservationRegistry.create(),
-                new OllamaCalls(chatModel, new SimpleMeterRegistry()),
+                new OllamaCalls(chatModel, embeddingModel, new SimpleMeterRegistry()),
                 ragPipelineService, taskStateRepository, stockApiTools);
         factory = new OrchestratorGraphFactory(nodes);
     }

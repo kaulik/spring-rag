@@ -88,7 +88,7 @@ class InferenceGraphTest {
         RagPipelineNodes nodes = new RagPipelineNodes(
                 props, new ChunkingService(props), weaviateService, guardrailService,
                 responseSanitizer, ObservationRegistry.create(),
-                new OllamaCalls(chatModel, new SimpleMeterRegistry()), embeddingModel);
+                new OllamaCalls(chatModel, embeddingModel, new SimpleMeterRegistry()));
         factory = new RagGraphFactory(nodes);
     }
 
