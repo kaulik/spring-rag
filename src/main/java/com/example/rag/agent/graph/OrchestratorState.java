@@ -8,7 +8,14 @@ import java.util.Map;
 
 /**
  * State flowing through the orchestrator graph:
- * route → (LLM-chosen conditional edge) → knowledgeBase | stockAgent | generalChat.
+ * route → (LLM-chosen conditional edge) → knowledgeBase | generalChat | END,
+ * or → stockAgentStep ⇄ stockToolsStep (LangGraph4j-native cyclic tool-calling
+ * loop) → END. The stock* fields only matter while inside that loop.
+ *
+ * stockConversation holds StockTurn (serializable mirror) records rather
+ * than real Spring AI Message objects — LangGraph4j clones state via Java
+ * serialization on every node transition, and Message/AssistantMessage/etc.
+ * don't implement Serializable. See StockTurn's javadoc.
  */
 public class OrchestratorState extends AgentState {
 
@@ -38,5 +45,20 @@ public class OrchestratorState extends AgentState {
 
     public String agentUsed() {
         return this.<String>value("agentUsed").orElse("");
+    }
+
+    // ── Stock tool-calling loop state ───────────────────────────────────────
+
+    public List<StockTurn> stockConversation() {
+        return this.<List<StockTurn>>value("stockConversation").orElse(List.of());
+    }
+
+    public int stockIterations() {
+        return this.<Integer>value("stockIterations").orElse(0);
+    }
+
+    /** Explicit continue/stop flag written fresh by stockAgentStep every time — never derived from possibly-stale response state. */
+    public boolean stockContinue() {
+        return this.<Boolean>value("stockContinue").orElse(false);
     }
 }
