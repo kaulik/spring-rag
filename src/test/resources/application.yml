@@ -10,6 +10,10 @@ spring:
   cloud:
     config:
       enabled: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
 
 # Consumed by OtelLoggingConfig (@Value, no fallback).
 OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
@@ -34,6 +38,20 @@ rag:
   chunking:
     sentences-per-chunk: 3
     token-overlap: 20
+
+# Multi-agent knobs — Java defaults exist, listed here for explicitness.
+agents:
+  router:
+    model: ""
+  knowledge-base:
+    model: ""
+  stock:
+    model: ""
+    api-base-url: http://localhost:19999   # never reached in tests
+  general:
+    model: ""
+  memory:
+    window: 10
 
 guardrails:
   api-key: test-api-key

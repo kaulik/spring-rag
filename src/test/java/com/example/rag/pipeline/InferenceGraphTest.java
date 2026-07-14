@@ -8,6 +8,7 @@ import com.example.rag.pipeline.graph.IngestState;
 import com.example.rag.pipeline.graph.InferenceState;
 import com.example.rag.pipeline.graph.RagGraphFactory;
 import com.example.rag.pipeline.graph.RagPipelineNodes;
+import com.example.rag.pipeline.support.OllamaCalls;
 import com.example.rag.weaviate.WeaviateService;
 import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -86,8 +87,8 @@ class InferenceGraphTest {
 
         RagPipelineNodes nodes = new RagPipelineNodes(
                 props, new ChunkingService(props), weaviateService, guardrailService,
-                responseSanitizer, ObservationRegistry.create(), new SimpleMeterRegistry(),
-                chatModel, embeddingModel);
+                responseSanitizer, ObservationRegistry.create(),
+                new OllamaCalls(chatModel, new SimpleMeterRegistry()), embeddingModel);
         factory = new RagGraphFactory(nodes);
     }
 

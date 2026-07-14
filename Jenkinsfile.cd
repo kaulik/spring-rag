@@ -85,7 +85,8 @@ pipeline {
             steps {
                 withCredentials([
                     string(credentialsId: 'WEAVIATE_API_KEY', variable: 'WEAVIATE_API_KEY'),
-                    string(credentialsId: 'API_KEY',          variable: 'API_KEY')
+                    string(credentialsId: 'API_KEY',          variable: 'API_KEY'),
+                    string(credentialsId: 'STOCK_API_KEY',    variable: 'STOCK_API_KEY')
                 ]) {
                     sh """
                         # Remove legacy uncolored containers from the pre-blue-green setup
@@ -111,6 +112,7 @@ pipeline {
                               -e WEAVIATE_API_KEY=\$WEAVIATE_API_KEY \
                               -e RAG_WEAVIATE_API_KEY=\$WEAVIATE_API_KEY \
                               -e API_KEY=\$API_KEY \
+                              -e STOCK_API_KEY=\$STOCK_API_KEY \
                               -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 \
                               -e OTEL_RESOURCE_ATTRIBUTES="service.instance.id=\$NAME,service.namespace=spring-rag,host.name=\$NAME,service.version=${params.IMAGE_TAG},deployment.color=${env.TARGET}" \
                               -e CONFIG_SERVER_URL=http://host.docker.internal:8686 \
