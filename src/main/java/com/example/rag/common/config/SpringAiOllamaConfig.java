@@ -1,6 +1,5 @@
-package com.example.rag.pipeline.config;
+package com.example.rag.common.config;
 
-import com.example.rag.common.config.RagProperties;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.OllamaEmbeddingModel;
