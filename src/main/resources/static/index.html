@@ -197,33 +197,45 @@
     <input type="password" id="api-key" placeholder="Enter your API key" />
   </div>
 
-  <!-- Query card -->
+  <!-- Ingest card -->
   <div class="card">
-    <!-- v2 pipeline (Spring AI + LangGraph4j) -->
-    <div id="panel-v2" class="panel active">
-      <div class="card-title">Spring AI + LangGraph4j pipeline (/api/v2)</div>
+    <div class="card-title">Ingest into knowledge base (/api/v2/ingest)</div>
 
-      <label for="v2-source">Source label <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
-      <input type="text" id="v2-source"
-             placeholder="e.g. meeting-notes, patient-summary" />
+    <label for="v2-source">Source label <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
+    <input type="text" id="v2-source"
+           placeholder="e.g. meeting-notes, patient-summary" />
 
-      <label for="v2-ctx">Context text <span style="font-weight:400;color:#94a3b8;">(optional — used by Ingest, or combined with the question)</span></label>
-      <textarea id="v2-ctx" rows="6"
-        placeholder="Paste text to ingest via the v2 graph, or leave empty to query stored docs..."></textarea>
+    <label for="v2-ctx">Context text</label>
+    <textarea id="v2-ctx" rows="6"
+      placeholder="Paste text to ingest into the knowledge base..."></textarea>
 
-      <label for="v2-query">Your question</label>
-      <textarea id="v2-query" rows="3"
-        placeholder="Ask anything — runs through the LangGraph inference graph..."></textarea>
+    <div class="row">
+      <button class="btn-primary" id="v2-ingest-btn" onclick="runIngestV2()">
+        Ingest
+      </button>
+      <span class="status" id="v2-status"></span>
+    </div>
+  </div>
 
-      <div class="row">
-        <button class="btn-primary" id="v2-ingest-btn" onclick="runIngestV2()">
-          Ingest
-        </button>
-        <button class="btn-primary" id="v2-query-btn" onclick="runQueryV2()">
-          Run Query
-        </button>
-        <span class="status" id="v2-status"></span>
-      </div>
+  <!-- Agent card -->
+  <div class="card">
+    <div class="card-title">
+      Multi-agent orchestrator (/api/v2/agent)
+      <span id="conversation-pill" class="info-pill" style="display:none;"></span>
+    </div>
+
+    <label for="agent-query">Your question</label>
+    <textarea id="agent-query" rows="3"
+      placeholder="Ask anything — an LLM router picks knowledge-base, stock, or general chat..."></textarea>
+
+    <div class="row">
+      <button class="btn-primary" id="agent-ask-btn" onclick="runAgent()">
+        Ask
+      </button>
+      <button class="btn-secondary" id="agent-new-btn" onclick="newConversation()">
+        New Conversation
+      </button>
+      <span class="status" id="agent-status"></span>
     </div>
   </div>
 
@@ -231,6 +243,8 @@
   <div class="card" id="answer-card" style="display:none;">
     <div class="card-title">
       Answer
+      <span id="intent-pill" class="badge" style="display:none;"></span>
+      <span id="agent-pill" class="badge" style="display:none;"></span>
       <span id="chunks-pill" class="info-pill" style="display:none;"></span>
     </div>
     <div class="answer-box" id="answer-text"></div>
@@ -266,6 +280,8 @@
     const srcList   = document.getElementById('sources-list');
     const badge     = document.getElementById('source-count');
     const chunksPill = document.getElementById('chunks-pill');
+    const intentPill = document.getElementById('intent-pill');
+    const agentPill  = document.getElementById('agent-pill');
 
     // Answer text
     answerEl.textContent = data.answer || '(no answer)';
@@ -277,6 +293,20 @@
       chunksPill.style.display = 'inline-block';
     } else {
       chunksPill.style.display = 'none';
+    }
+
+    // Intent / agent pills — present on /api/v2/agent responses only
+    if (data.intent) {
+      intentPill.textContent = data.intent;
+      intentPill.style.display = 'inline-flex';
+    } else {
+      intentPill.style.display = 'none';
+    }
+    if (data.agent) {
+      agentPill.textContent = data.agent;
+      agentPill.style.display = 'inline-flex';
+    } else {
+      agentPill.style.display = 'none';
     }
 
     // Sources
@@ -309,7 +339,7 @@
   }
 
   // --------------------------------------------------------------------------
-  // v2 pipeline (Spring AI + LangGraph4j) — /api/v2/*
+  // Ingest — /api/v2/ingest
   // --------------------------------------------------------------------------
   async function runIngestV2() {
     const contextText = document.getElementById('v2-ctx').value.trim();
@@ -340,34 +370,57 @@
     }
   }
 
-  async function runQueryV2() {
-    const query       = document.getElementById('v2-query').value.trim();
-    const contextText = document.getElementById('v2-ctx').value.trim();
-    const source      = document.getElementById('v2-source').value.trim() || 'frontend';
+  // --------------------------------------------------------------------------
+  // Multi-agent orchestrator — /api/v2/agent
+  // --------------------------------------------------------------------------
+  let currentConversationId = null;
 
-    if (!query) { setStatus('v2-status', '⚠ Enter a question.'); return; }
+  function updateConversationPill() {
+    const pill = document.getElementById('conversation-pill');
+    if (currentConversationId) {
+      pill.textContent = 'conversation: ' + currentConversationId.substring(0, 8);
+      pill.style.display = 'inline-flex';
+    } else {
+      pill.style.display = 'none';
+    }
+  }
 
-    const btn = document.getElementById('v2-query-btn');
+  function newConversation() {
+    currentConversationId = null;
+    updateConversationPill();
+    document.getElementById('agent-query').value = '';
+    document.getElementById('answer-card').style.display = 'none';
+    setStatus('agent-status', 'Started a new conversation.');
+  }
+
+  async function runAgent() {
+    const query = document.getElementById('agent-query').value.trim();
+
+    if (!query) { setStatus('agent-status', '⚠ Enter a question.'); return; }
+
+    const btn = document.getElementById('agent-ask-btn');
     btn.disabled = true;
-    setStatus('v2-status', loading());
+    setStatus('agent-status', loading());
     document.getElementById('answer-card').style.display = 'none';
 
     try {
       const apiKey = document.getElementById('api-key').value.trim();
-      const url  = contextText ? '/api/v2/query-with-context' : '/api/v2/query';
-      const body = contextText ? { query, contextText, source } : { query };
-      const resp = await fetch(API + url, {
+      const resp = await fetch(API + '/api/v2/agent', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-        body:    JSON.stringify(body),
+        body:    JSON.stringify({ query, conversationId: currentConversationId }),
       });
 
       if (!resp.ok) throw new Error('HTTP ' + resp.status + ' — ' + await resp.text());
       const data = await resp.json();
-      setStatus('v2-status', 'Done.');
+
+      currentConversationId = data.conversationId;
+      updateConversationPill();
+
+      setStatus('agent-status', 'Done.');
       showAnswer(data);
     } catch (err) {
-      setStatus('v2-status', '❌ ' + err.message);
+      setStatus('agent-status', '❌ ' + err.message);
     } finally {
       btn.disabled = false;
     }
