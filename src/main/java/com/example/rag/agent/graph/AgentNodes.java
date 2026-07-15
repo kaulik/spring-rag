@@ -108,6 +108,9 @@ public class AgentNodes {
     // ── Nodes ────────────────────────────────────────────────────────────────
 
     public Map<String, Object> route(OrchestratorState state) {
+        long startedAt = System.currentTimeMillis();
+        log.info("[Orchestrator] route() starting requestId={} recentTurns={}",
+                state.requestId(), state.recentTurns().size());
         Intent intent = Observation.createNotStarted("agent.route", observationRegistry)
                 .observe(() -> {
                     String userMsg = withHistory(state.recentTurns(), state.question());
@@ -116,24 +119,34 @@ public class AgentNodes {
                         raw = ollamaCalls.chat(ROUTER_SYSTEM_PROMPT, userMsg,
                                 model(agentProperties.getRouter().getModel()), "route");
                     } catch (Exception e) {
-                        log.warn("[Agent] router LLM failed, falling back to GENERAL: {}", e.getMessage());
+                        log.warn("[Orchestrator] route() classifier LLM failed, falling back to GENERAL: {}",
+                                e.getMessage());
                         return Intent.GENERAL;
                     }
                     return Intent.parse(raw);
                 });
-        log.info("[Agent] route() requestId={} intent={}", state.requestId(), intent);
+        long elapsedMs = System.currentTimeMillis() - startedAt;
+        log.info("[Orchestrator] route() completed requestId={} intent={} elapsedMs={}",
+                state.requestId(), intent, elapsedMs);
         taskStateRepository.running(state.requestId(), intent.name(), agentNameFor(intent));
         return Map.of("intent", intent.name());
     }
 
     /** Conditional-edge router: dereferences the LLM's classification. */
     public String intentRoute(OrchestratorState state) {
+        log.debug("[Orchestrator] intentRoute() requestId={} dereferencing intent={}",
+                state.requestId(), state.intent());
         return state.intent();
     }
 
     public Map<String, Object> knowledgeBase(OrchestratorState state) {
+        long startedAt = System.currentTimeMillis();
+        log.info("[Agent:knowledgeBase] starting requestId={}", state.requestId());
         String answer = Observation.createNotStarted("agent.kb", observationRegistry)
                 .observe(() -> ragPipelineService.answerQuestion(state.question()).answer());
+        long elapsedMs = System.currentTimeMillis() - startedAt;
+        log.info("[Agent:knowledgeBase] completed requestId={} answerLen={} elapsedMs={}",
+                state.requestId(), answer.length(), elapsedMs);
         // Never a reroute source (RagPipelineService has no sentinel-emitting
         // prompt surface of its own) — only ever clears any inherited
         // handoffIntent, since this node always edges straight to END anyway.
@@ -153,18 +166,25 @@ public class AgentNodes {
     public Map<String, Object> stockAgent(OrchestratorState state) {
         return Observation.createNotStarted("agent.stock", observationRegistry).observe(() -> {
             String model = model(agentProperties.getStock().getModel());
+            long startedAt = System.currentTimeMillis();
+            log.info("[Agent:stock] starting requestId={} model={}", state.requestId(), model);
             try {
                 String answer = stockChatClient.prompt()
                         .user(withHistory(state.recentTurns(), state.question()))
                         .options(ChatOptions.builder().model(model))
                         .toolContext(Map.of("requestId", state.requestId()))
-                        .advisors(new StockLoopCapAdvisor(STOCK_MAX_ITERATIONS, model, "stock-agent", ollamaCalls))
+                        .advisors(new StockLoopCapAdvisor(
+                                STOCK_MAX_ITERATIONS, model, "stock-agent", ollamaCalls, state.requestId()))
                         .call()
                         .content();
-                log.info("[Agent] stockAgent requestId={} answered", state.requestId());
+                long elapsedMs = System.currentTimeMillis() - startedAt;
+                log.info("[Agent:stock] completed requestId={} model={} answerLen={} elapsedMs={}",
+                        state.requestId(), model, answer == null ? 0 : answer.length(), elapsedMs);
                 return withReroute(state, Intent.STOCKS, "stock", answer != null ? answer : "");
             } catch (Exception e) {
-                log.warn("[Agent] stockAgent failed for requestId={}: {}", state.requestId(), e.getMessage());
+                long elapsedMs = System.currentTimeMillis() - startedAt;
+                log.warn("[Agent:stock] failed requestId={} model={} elapsedMs={}: {}",
+                        state.requestId(), model, elapsedMs, e.getMessage());
                 return Map.of(
                         "answer", "The stock data service is currently unavailable. Please try again later.",
                         "agentUsed", "stock", "handoffIntent", "");
@@ -173,18 +193,27 @@ public class AgentNodes {
     }
 
     public Map<String, Object> generalChat(OrchestratorState state) {
+        String model = model(agentProperties.getGeneral().getModel());
+        long startedAt = System.currentTimeMillis();
+        log.info("[Agent:generalChat] starting requestId={} model={}", state.requestId(), model);
         String answer = Observation.createNotStarted("agent.general", observationRegistry)
                 .observe(() -> ollamaCalls.chat(
                         GENERAL_SYSTEM_PROMPT,
                         withHistory(state.recentTurns(), state.question()),
-                        model(agentProperties.getGeneral().getModel()),
+                        model,
                         "general-agent"));
+        long elapsedMs = System.currentTimeMillis() - startedAt;
+        log.info("[Agent:generalChat] completed requestId={} model={} answerLen={} elapsedMs={}",
+                state.requestId(), model, answer.length(), elapsedMs);
         return withReroute(state, Intent.GENERAL, "general", answer);
     }
 
     /** Conditional edge from a sub-agent node: hands off to a different sub-agent, or stops. */
     public String rerouteEdge(OrchestratorState state) {
-        return state.handoffIntent().isBlank() ? "done" : state.handoffIntent();
+        String next = state.handoffIntent().isBlank() ? "done" : state.handoffIntent();
+        log.debug("[Orchestrator] rerouteEdge() requestId={} handoffIntent={} -> {}",
+                state.requestId(), state.handoffIntent().isBlank() ? "none" : state.handoffIntent(), next);
+        return next;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -220,8 +249,8 @@ public class AgentNodes {
         if (result.handoffIntent() != null) {
             update.put("handoffIntent", result.handoffIntent().name());
             update.put("rerouteCount", state.rerouteCount() + 1);
-            log.info("[Agent] {} requestId={} rerouting to {}",
-                    agentUsed, state.requestId(), result.handoffIntent());
+            log.info("[Agent:{}] rerouting requestId={} to {} (rerouteCount={})",
+                    agentUsed, state.requestId(), result.handoffIntent(), state.rerouteCount() + 1);
         } else {
             update.put("handoffIntent", "");
         }
@@ -286,13 +315,15 @@ public class AgentNodes {
         private final String model;
         private final String stage;
         private final OllamaCalls ollamaCalls;
+        private final String requestId;
         private final AtomicInteger iterations = new AtomicInteger(0);
 
-        StockLoopCapAdvisor(int maxIterations, String model, String stage, OllamaCalls ollamaCalls) {
+        StockLoopCapAdvisor(int maxIterations, String model, String stage, OllamaCalls ollamaCalls, String requestId) {
             this.maxIterations = maxIterations;
             this.model = model;
             this.stage = stage;
             this.ollamaCalls = ollamaCalls;
+            this.requestId = requestId;
         }
 
         @Override
@@ -307,9 +338,13 @@ public class AgentNodes {
 
         @Override
         public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
-            if (iterations.getAndIncrement() >= maxIterations) {
+            int iteration = iterations.getAndIncrement();
+            if (iteration >= maxIterations) {
+                log.warn("[Agent:stock] tool-loop cap reached requestId={} iteration={} maxIterations={}",
+                        requestId, iteration, maxIterations);
                 return capResponse(request);
             }
+            log.debug("[Agent:stock] tool-loop round requestId={} iteration={}", requestId, iteration);
             ChatClientResponse response = chain.nextCall(request);
             ollamaCalls.recordTokens(model, stage, response.chatResponse());
             return response;

@@ -52,12 +52,18 @@ public class AgentOrchestratorService {
                 ? UUID.randomUUID().toString()
                 : conversationIdOrNull.trim();
         String requestId = UUID.randomUUID().toString();
+        long startedAt = System.currentTimeMillis();
 
         Observation obs = Observation.createNotStarted("agent.orchestrate", observationRegistry).start();
+        log.info("[Orchestrator] request received requestId={} conversationId={} questionLen={}",
+                requestId, conversationId, question == null ? 0 : question.length());
         taskState.start(requestId, conversationId);
         try {
             List<Turn> recentTurns = conversationMemory.recentTurns(conversationId);
+            log.info("[Orchestrator] loaded {} recent turn(s) requestId={} conversationId={}",
+                    recentTurns.size(), requestId, conversationId);
 
+            log.info("[Orchestrator] invoking graph requestId={} conversationId={}", requestId, conversationId);
             OrchestratorState state = orchestratorGraph
                     .invoke(Map.of(
                             "question", question,
@@ -77,16 +83,22 @@ public class AgentOrchestratorService {
             conversationMemory.append(conversationId, new Turn(Turn.ROLE_ASSISTANT, state.answer(), now));
             taskState.done(requestId);
 
-            log.info("[Agent] handled requestId={} conversationId={} intent={} agent={}",
-                    requestId, conversationId, state.intent(), state.agentUsed());
+            long elapsedMs = System.currentTimeMillis() - startedAt;
+            log.info("[Orchestrator] request completed requestId={} conversationId={} intent={} agent={} "
+                    + "answerLen={} elapsedMs={}",
+                    requestId, conversationId, state.intent(), state.agentUsed(),
+                    state.answer() == null ? 0 : state.answer().length(), elapsedMs);
             return new AgentResult(conversationId, requestId, state.intent(), state.agentUsed(), state.answer());
 
         } catch (Exception e) {
+            long elapsedMs = System.currentTimeMillis() - startedAt;
             obs.lowCardinalityKeyValue("outcome", "error");
             obs.error(e);
             meterRegistry.counter("agent.requests",
                     "intent", "unknown", "agent", "unknown", "outcome", "error").increment();
             taskState.failed(requestId, e.getMessage());
+            log.error("[Orchestrator] request failed requestId={} conversationId={} elapsedMs={}: {}",
+                    requestId, conversationId, elapsedMs, e.getMessage(), e);
             throw e;
         } finally {
             obs.stop();
