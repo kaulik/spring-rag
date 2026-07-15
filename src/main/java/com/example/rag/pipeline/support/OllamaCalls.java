@@ -33,9 +33,25 @@ public class OllamaCalls {
     private final MeterRegistry meterRegistry;
 
     public String chat(String systemPrompt, String userPrompt, String model, String stage) {
+        return chat(systemPrompt, userPrompt, model, stage, null);
+    }
+
+    /**
+     * temperature=null leaves Ollama's own default (high, ~0.8) in place —
+     * fine for conversational replies. Classification-style calls (e.g. the
+     * orchestrator's intent router) should pass a low/zero temperature: a
+     * single-word decision needs to be deterministic, not creative — the
+     * same question landing on a different intent from run to run is a bug,
+     * not a feature.
+     */
+    public String chat(String systemPrompt, String userPrompt, String model, String stage, Double temperature) {
+        OllamaChatOptions.Builder options = OllamaChatOptions.builder().model(model);
+        if (temperature != null) {
+            options.temperature(temperature);
+        }
         Prompt prompt = new Prompt(
                 List.of(new SystemMessage(systemPrompt), new UserMessage(userPrompt)),
-                OllamaChatOptions.builder().model(model).build());
+                options.build());
         ChatResponse response = ollamaChatModel.call(prompt);
         recordTokens(model, stage, response);
         return response.getResult().getOutput().getText();

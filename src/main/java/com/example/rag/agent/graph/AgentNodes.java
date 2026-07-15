@@ -116,8 +116,11 @@ public class AgentNodes {
                     String userMsg = withHistory(state.recentTurns(), state.question());
                     String raw;
                     try {
+                        // temperature=0: classification must be deterministic —
+                        // Ollama's default (~0.8) can flip the same question to
+                        // a different intent from one call to the next.
                         raw = ollamaCalls.chat(ROUTER_SYSTEM_PROMPT, userMsg,
-                                model(agentProperties.getRouter().getModel()), "route");
+                                model(agentProperties.getRouter().getModel()), "route", 0.0);
                     } catch (Exception e) {
                         log.warn("[Orchestrator] route() classifier LLM failed, falling back to GENERAL: {}",
                                 e.getMessage());
@@ -129,7 +132,16 @@ public class AgentNodes {
         log.info("[Orchestrator] route() completed requestId={} intent={} elapsedMs={}",
                 state.requestId(), intent, elapsedMs);
         taskStateRepository.running(state.requestId(), intent.name(), agentNameFor(intent));
-        return Map.of("intent", intent.name());
+        // rerouteCount must be reset here, not just incremented elsewhere:
+        // with the Redis checkpoint saver configured, LangGraph4j's
+        // initialState() merges in the PREVIOUS turn's entire final state
+        // for this conversationId before applying the new question (verified
+        // via CompiledGraph.initialState() source) — every other per-turn
+        // field is safe because some node always overwrites it, but
+        // rerouteCount is only ever incremented, so without this reset a
+        // conversation's reroute budget would silently stay spent forever
+        // after its first reroute.
+        return Map.of("intent", intent.name(), "rerouteCount", 0);
     }
 
     /** Conditional-edge router: dereferences the LLM's classification. */
