@@ -40,7 +40,11 @@ import static org.mockito.Mockito.*;
 /**
  * Orchestrator graph wiring tests — no Spring context, models/services
  * mocked. Locks the LLM-driven routing contract: classifier output picks
- * the sub-agent node; garbage output falls back to generalChat.
+ * the sub-agent node; garbage output falls back to generalChat. The stock
+ * agent's own tool-calling loop (ChatClient + ToolCallingAdvisor) always
+ * bottoms out in the same mocked ChatModel.call(Prompt), since
+ * ChatModelCallAdvisor — the terminal advisor ChatClient always registers —
+ * simply delegates to it.
  */
 class OrchestratorGraphTest {
 
@@ -62,9 +66,8 @@ class OrchestratorGraphTest {
 
         AgentProperties agentProps = new AgentProperties();
 
-        // Real (JDK built-in) HTTP server so the cyclic loop's tool-execution
-        // round trip is exercised end to end, not mocked away — only the
-        // multi-round tests below actually hit it.
+        // Real (JDK built-in) HTTP server so the stock agent's tool
+        // execution round trip is exercised end to end, not mocked away.
         stockServer = HttpServer.create(new InetSocketAddress(0), 0);
         stockServer.createContext("/", exchange -> {
             stockServerHits.incrementAndGet();
@@ -78,6 +81,11 @@ class OrchestratorGraphTest {
         agentProps.getStock().setApiBaseUrl("http://localhost:" + stockServer.getAddress().getPort());
 
         chatModel = mock(ChatModel.class);
+        // ChatClient always builds its request options via
+        // chatModel.getOptions().mutate() (DefaultChatClientUtils), even
+        // for calls that never touch ChatClient directly — must be non-null
+        // and a ToolCallingChatOptions for the stock agent's tools to merge in.
+        when(chatModel.getOptions()).thenReturn(org.springframework.ai.ollama.api.OllamaChatOptions.builder().build());
         EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
         ragPipelineService = mock(RagPipelineService.class);
         taskStateRepository = mock(TaskStateRepository.class);
@@ -88,7 +96,7 @@ class OrchestratorGraphTest {
         AgentNodes nodes = new AgentNodes(
                 ragProps, agentProps, ObservationRegistry.create(),
                 new OllamaCalls(chatModel, embeddingModel, new SimpleMeterRegistry()),
-                ragPipelineService, taskStateRepository, stockApiTools);
+                chatModel, ragPipelineService, taskStateRepository, stockApiTools);
         factory = new OrchestratorGraphFactory(nodes);
     }
 
@@ -139,11 +147,11 @@ class OrchestratorGraphTest {
 
     @Test
     void stockAgentExecutesToolThenLoopsBackForFinalAnswer() throws Exception {
-        // router -> STOCKS, then stockAgentStep requests a real tool call,
-        // stockToolsStep executes it against the embedded HTTP server, and
-        // stockAgentStep's SECOND round gets the final text answer — this
-        // is the actual LangGraph4j cycle (stockAgentStep -> stockToolsStep
-        // -> stockAgentStep), not just the single-shot no-tool-calls path.
+        // router -> STOCKS, then the model requests a real tool call,
+        // ToolCallingAdvisor executes it against the embedded HTTP server
+        // and loops back internally, and the model's SECOND round gets the
+        // final text answer — this is Spring AI's own tool-calling loop,
+        // not a hand-rolled cycle.
         when(chatModel.call(any(Prompt.class)))
                 .thenReturn(chatResponse("STOCKS"))
                 .thenReturn(toolCallResponse("getTrendingStocks"))
@@ -154,8 +162,6 @@ class OrchestratorGraphTest {
         assertEquals("stock", state.agentUsed());
         assertEquals("Tata Steel and Infosys are trending today.", state.answer());
         assertEquals(1, stockServerHits.get(), "the tool must actually have been executed once");
-        // round 1: AssistantTurn(tool-call) + ToolResultTurn; round 2: AssistantTurn(final) — 3 turns total
-        assertEquals(3, state.stockConversation().size());
         verify(chatModel, times(3)).call(any(Prompt.class));
         verify(taskStateRepository).incrementToolCalls("req-1");
     }
@@ -163,21 +169,24 @@ class OrchestratorGraphTest {
     @Test
     void stockAgentStopsAtIterationCapWhenModelKeepsRequestingTools() throws Exception {
         // Every response requests another tool call — the loop must not run
-        // forever; it should stop after AgentNodes.STOCK_MAX_ITERATIONS
-        // rounds and still return SOME answer rather than hanging/erroring.
+        // forever; StockLoopCapAdvisor must short-circuit it after
+        // AgentNodes.STOCK_MAX_ITERATIONS raw model calls and still return
+        // SOME answer rather than hanging/erroring.
         when(chatModel.call(any(Prompt.class)))
                 .thenReturn(chatResponse("STOCKS"))
-                .thenReturn(toolCallResponse("getTrendingStocks"));
+                .thenAnswer(invocation -> toolCallResponse("getTrendingStocks"));
 
         OrchestratorState state = invoke("What's trending on NSE?");
 
         assertEquals("stock", state.agentUsed());
         assertNotNull(state.answer());
-        assertEquals(4, stockServerHits.get(), "loop must stop at STOCK_MAX_ITERATIONS, not run forever");
-        // route(1) + stockAgentStep at iterations 0,1,2,3 (each requests a
-        // tool, continues) + iteration 4 (4 < 4 is false, stops) = 6 calls
-        verify(chatModel, times(6)).call(any(Prompt.class));
+        assertFalse(state.answer().isBlank());
+        // router(1) + AgentNodes.STOCK_MAX_ITERATIONS (4) model calls, each
+        // requesting a tool — the cap advisor short-circuits the 5th round
+        // itself rather than reaching the model again.
+        verify(chatModel, times(5)).call(any(Prompt.class));
         verify(taskStateRepository, times(4)).incrementToolCalls("req-1");
+        assertEquals(4, stockServerHits.get(), "exactly STOCK_MAX_ITERATIONS tool executions, no more");
     }
 
     @Test

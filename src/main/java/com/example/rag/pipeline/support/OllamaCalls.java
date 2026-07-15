@@ -2,7 +2,6 @@ package com.example.rag.pipeline.support;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
-import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.Usage;
@@ -14,12 +13,10 @@ import org.springframework.ai.embedding.EmbeddingRequest;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.ai.ollama.api.OllamaEmbeddingOptions;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Shared Ollama chat/embed entry points for the pipeline, agent, and mcp
@@ -43,33 +40,6 @@ public class OllamaCalls {
         recordTokens(model, stage, response);
         return response.getResult().getOutput().getText();
     }
-
-    /**
-     * One turn of a caller-driven (LangGraph4j) cyclic tool-calling loop:
-     * internal tool execution is OFF, so the response may carry tool-call
-     * requests instead of a final answer — the caller inspects
-     * ChatExchange.response() and, if it wants to execute those tools, feeds
-     * ChatExchange.prompt()+response() into a ToolCallingManager itself and
-     * loops back with the resulting conversation history. Unlike chat(),
-     * this hands back the raw exchange rather than just text, since the
-     * caller needs the Prompt (matching the toolCallbacks that produced the
-     * response) to execute tools correctly.
-     */
-    public ChatExchange chatExchange(List<Message> messages, String model, List<ToolCallback> tools,
-                                     Map<String, Object> toolContext, String stage) {
-        Prompt prompt = new Prompt(
-                messages,
-                OllamaChatOptions.builder()
-                        .model(model)
-                        .toolCallbacks(tools)
-                        .toolContext(toolContext)
-                        .build());
-        ChatResponse response = ollamaChatModel.call(prompt);
-        recordTokens(model, stage, response);
-        return new ChatExchange(prompt, response);
-    }
-
-    public record ChatExchange(Prompt prompt, ChatResponse response) {}
 
     public List<Double> embed(String text, String model) {
         EmbeddingRequest request = new EmbeddingRequest(

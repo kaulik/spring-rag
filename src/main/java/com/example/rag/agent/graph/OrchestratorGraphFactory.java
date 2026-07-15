@@ -13,54 +13,36 @@ import static org.bsc.langgraph4j.action.AsyncEdgeAction.edge_async;
 import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 
 /**
- * Builds the orchestrator graph — a single LangGraph4j graph doing both
- * jobs: LLM-driven routing (route node's classification dereferenced by a
- * conditional edge, same addConditionalEdges idiom as the pipeline's
- * rerankRoute) AND, for the STOCKS branch, a native cyclic tool-calling
- * loop (stockAgentStep ⇄ stockToolsStep) instead of delegating looping to
- * Spring AI's internal tool execution.
+ * Builds the orchestrator graph: LLM-driven routing (route node's
+ * classification dereferenced by a conditional edge, same addConditionalEdges
+ * idiom as the pipeline's rerankRoute) to one of three sub-agent nodes. The
+ * stock agent's own tool-calling loop (ChatClient + ToolCallingAdvisor) is
+ * internal to its node — no cyclic edges needed here.
  *
  *   START -> route -> (conditional on intent)
  *              +-- KNOWLEDGE_BASE -> knowledgeBase -> END
- *              +-- STOCKS         -> stockAgentStep -> (conditional on stockLoopRoute)
- *              |                        ^                  +-- tools -> stockToolsStep --+
- *              |                        +-------------------------------------------------+
- *              |                                            +-- done -> END
- *              +-- GENERAL        -> generalChat  -> END
+ *              +-- STOCKS         -> stockAgent    -> END
+ *              +-- GENERAL        -> generalChat   -> END
  */
 @RequiredArgsConstructor
 public class OrchestratorGraphFactory {
 
-    /**
-     * Coarse backstop across the WHOLE graph (route + up to
-     * AgentNodes.STOCK_MAX_ITERATIONS stockAgentStep/stockToolsStep pairs),
-     * on top of the per-loop cap enforced inside stockAgentStep itself —
-     * protects against a bug in that primary cap, not a substitute for it.
-     */
-    private static final int MAX_GRAPH_ITERATIONS = 20;
-
     private final AgentNodes nodes;
 
     public CompiledGraph<OrchestratorState> buildOrchestratorGraph() throws GraphStateException {
-        CompiledGraph<OrchestratorState> graph = new StateGraph<>(OrchestratorState::new)
+        return new StateGraph<>(OrchestratorState::new)
                 .addNode("route", node_async(nodes::route))
                 .addNode("knowledgeBase", node_async(nodes::knowledgeBase))
-                .addNode("stockAgentStep", node_async(nodes::stockAgentStep))
-                .addNode("stockToolsStep", node_async(nodes::stockToolsStep))
+                .addNode("stockAgent", node_async(nodes::stockAgent))
                 .addNode("generalChat", node_async(nodes::generalChat))
                 .addEdge(START, "route")
                 .addConditionalEdges("route", edge_async(nodes::intentRoute),
                         Map.of(Intent.KNOWLEDGE_BASE.name(), "knowledgeBase",
-                               Intent.STOCKS.name(), "stockAgentStep",
+                               Intent.STOCKS.name(), "stockAgent",
                                Intent.GENERAL.name(), "generalChat"))
-                .addConditionalEdges("stockAgentStep", edge_async(nodes::stockLoopRoute),
-                        Map.of("tools", "stockToolsStep",
-                               "done", END))
-                .addEdge("stockToolsStep", "stockAgentStep")
                 .addEdge("knowledgeBase", END)
+                .addEdge("stockAgent", END)
                 .addEdge("generalChat", END)
                 .compile();
-        graph.setMaxIterations(MAX_GRAPH_ITERATIONS);
-        return graph;
     }
 }
