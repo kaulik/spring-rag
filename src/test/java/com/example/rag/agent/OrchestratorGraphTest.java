@@ -5,6 +5,7 @@ import com.example.rag.agent.graph.AgentNodes;
 import com.example.rag.agent.graph.OrchestratorGraphFactory;
 import com.example.rag.agent.graph.OrchestratorState;
 import com.example.rag.agent.memory.TaskStateRepository;
+import com.example.rag.agent.memory.Turn;
 import com.example.rag.agent.tools.StockApiTools;
 import com.example.rag.common.config.RagProperties;
 import com.example.rag.pipeline.service.RagPipelineService;
@@ -126,12 +127,38 @@ class OrchestratorGraphTest {
     }
 
     private OrchestratorState invoke(String question) throws Exception {
+        return invoke(question, List.of());
+    }
+
+    private OrchestratorState invoke(String question, List<Turn> recentTurns) throws Exception {
         CompiledGraph<OrchestratorState> graph = factory.buildOrchestratorGraph();
         Optional<OrchestratorState> out = graph.invoke(
-                Map.of("question", question, "requestId", "req-1", "recentTurns", List.of()),
+                Map.of("question", question, "requestId", "req-1", "recentTurns", recentTurns),
                 RunnableConfig.builder().build());
         assertTrue(out.isPresent(), "graph must produce a final state");
         return out.get();
+    }
+
+    @Test
+    void nonEmptyRecentTurnsSurviveGraphStateCloning() throws Exception {
+        // Regression test for a real production NotSerializableException:
+        // CompiledGraph.cloneState() clones OrchestratorState via plain Java
+        // serialization (ObjectStreamStateSerializer, the LangGraph4j
+        // default) on every node transition — independent of
+        // RedisCheckpointSaver's own Jackson-based serialization, which only
+        // covers the Redis path. Every other test here passes an EMPTY
+        // recentTurns list, which serializes fine regardless of element type
+        // (nothing inside it to fail on) — only a real, non-empty list with
+        // actual Turn objects exercises this.
+        mockChat("GENERAL", "Hello again!");
+        List<Turn> history = List.of(
+                new Turn(Turn.ROLE_USER, "hi", 1L),
+                new Turn(Turn.ROLE_ASSISTANT, "hello", 2L));
+
+        OrchestratorState state = invoke("how are you?", history);
+
+        assertEquals("general", state.agentUsed());
+        assertEquals("Hello again!", state.answer());
     }
 
     @Test
