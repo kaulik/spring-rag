@@ -8,9 +8,11 @@ import java.util.Map;
 
 /**
  * State flowing through the orchestrator graph:
- * route → (LLM-chosen conditional edge) → knowledgeBase | stockAgent | generalChat → END.
- * The stock agent's own tool-calling loop is internal to that single node
- * (ChatClient + ToolCallingAdvisor), so no loop state lives here.
+ * route → (LLM-chosen conditional edge) → knowledgeBase | stockAgent | generalChat → END,
+ * with a bounded reroute path from stockAgent/generalChat back to a different
+ * sub-agent node when handoffIntent is set. The stock agent's own
+ * tool-calling loop is internal to that single node (ChatClient +
+ * ToolCallingAdvisor), so no loop state lives here.
  */
 public class OrchestratorState extends AgentState {
 
@@ -40,5 +42,15 @@ public class OrchestratorState extends AgentState {
 
     public String agentUsed() {
         return this.<String>value("agentUsed").orElse("");
+    }
+
+    /** Set by a sub-agent node when it judges the question isn't its domain — a target Intent name, or empty if none. */
+    public String handoffIntent() {
+        return this.<String>value("handoffIntent").orElse("");
+    }
+
+    /** Incremented each time a handoff actually occurs; caps the reroute loop at AgentNodes.MAX_REROUTES. */
+    public int rerouteCount() {
+        return this.<Integer>value("rerouteCount").orElse(0);
     }
 }

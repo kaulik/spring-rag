@@ -97,7 +97,9 @@ class OrchestratorGraphTest {
                 ragProps, agentProps, ObservationRegistry.create(),
                 new OllamaCalls(chatModel, embeddingModel, new SimpleMeterRegistry()),
                 chatModel, ragPipelineService, taskStateRepository, stockApiTools);
-        factory = new OrchestratorGraphFactory(nodes);
+        // Real (non-Redis) in-memory checkpoint saver — these are pure
+        // graph-wiring tests, no live Redis involved.
+        factory = new OrchestratorGraphFactory(nodes, new org.bsc.langgraph4j.checkpoint.MemorySaver());
     }
 
     @AfterEach
@@ -187,6 +189,47 @@ class OrchestratorGraphTest {
         verify(chatModel, times(5)).call(any(Prompt.class));
         verify(taskStateRepository, times(4)).incrementToolCalls("req-1");
         assertEquals(4, stockServerHits.get(), "exactly STOCK_MAX_ITERATIONS tool executions, no more");
+    }
+
+    @Test
+    void stockAgentReroutesToKnowledgeBaseWhenOutOfDomain() throws Exception {
+        // router -> STOCKS, but the model itself decides mid-answer that
+        // this isn't a stock question and hands off via the REROUTE
+        // sentinel — the graph must follow that handoff to knowledgeBase
+        // rather than returning the stock agent's own (redirecting) answer.
+        when(chatModel.call(any(Prompt.class)))
+                .thenReturn(chatResponse("STOCKS"))
+                .thenReturn(chatResponse("This isn't something I can help with.\nREROUTE: KNOWLEDGE_BASE"));
+        when(ragPipelineService.answerQuestion("What does the manual say about returns policy?"))
+                .thenReturn(new RagPipelineResult("the manual says 30 days", List.of()));
+
+        OrchestratorState state = invoke("What does the manual say about returns policy?");
+
+        assertEquals("knowledge-base", state.agentUsed());
+        assertEquals("the manual says 30 days", state.answer());
+        assertEquals(1, state.rerouteCount());
+        assertTrue(state.handoffIntent().isEmpty(), "handoffIntent must be cleared once the handoff completes");
+        verify(chatModel, times(2)).call(any(Prompt.class));
+    }
+
+    @Test
+    void rerouteCapPreventsSecondHandoff() throws Exception {
+        // First reroute (GENERAL -> STOCKS) is honored; the second sub-agent
+        // ALSO tries to reroute (STOCKS -> GENERAL again), but
+        // AgentNodes.MAX_REROUTES (1) must refuse it — the graph ends on the
+        // second agent's own answer instead of ping-ponging forever.
+        when(chatModel.call(any(Prompt.class)))
+                .thenReturn(chatResponse("GENERAL"))
+                .thenReturn(chatResponse("Let's talk stocks instead.\nREROUTE: STOCKS"))
+                .thenReturn(chatResponse("Actually, let me redirect this.\nREROUTE: GENERAL"));
+
+        OrchestratorState state = invoke("hi");
+
+        assertEquals("stock", state.agentUsed(), "second reroute must be refused once MAX_REROUTES is hit");
+        assertEquals("Actually, let me redirect this.", state.answer());
+        assertEquals(1, state.rerouteCount(), "only the first handoff counts");
+        assertTrue(state.handoffIntent().isEmpty());
+        verify(chatModel, times(3)).call(any(Prompt.class));
     }
 
     @Test

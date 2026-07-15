@@ -62,7 +62,8 @@ public class AgentOrchestratorService {
                     .invoke(Map.of(
                             "question", question,
                             "requestId", requestId,
-                            "recentTurns", recentTurns), RunnableConfig.builder().build())
+                            "recentTurns", recentTurns),
+                            RunnableConfig.builder().threadId(conversationId).build())
                     .orElseThrow(() -> new IllegalStateException("Orchestrator graph produced no final state"));
 
             obs.lowCardinalityKeyValue("intent", state.intent());
