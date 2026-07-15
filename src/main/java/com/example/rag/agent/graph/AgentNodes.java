@@ -223,7 +223,6 @@ public class AgentNodes {
                     OllamaChatOptions.builder()
                             .model(model(agentProperties.getStock().getModel()))
                             .toolCallbacks(stockToolCallbacks)
-                            .internalToolExecutionEnabled(false)
                             .toolContext(Map.of("requestId", state.requestId()))
                             .build());
             ChatResponse response = new ChatResponse(List.of(new Generation(toAssistantMessage(assistantTurn))));

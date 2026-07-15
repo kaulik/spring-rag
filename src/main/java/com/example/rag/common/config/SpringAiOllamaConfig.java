@@ -9,8 +9,9 @@ import org.springframework.ai.ollama.api.OllamaEmbeddingOptions;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.retry.RetryPolicy;
+import org.springframework.core.retry.RetryTemplate;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
-import org.springframework.retry.support.RetryTemplate;
 import org.springframework.web.client.RestClient;
 
 import java.net.http.HttpClient;
@@ -33,7 +34,7 @@ public class SpringAiOllamaConfig {
     public OllamaChatModel ollamaChatModel(RagProperties props, ObservationRegistry observationRegistry) {
         return OllamaChatModel.builder()
                 .ollamaApi(buildApi(props))
-                .defaultOptions(OllamaChatOptions.builder()
+                .options(OllamaChatOptions.builder()
                         .model(props.getOllama().getChatModel())
                         .build())
                 .observationRegistry(observationRegistry)
@@ -49,9 +50,7 @@ public class SpringAiOllamaConfig {
      * latency instead of a fast, visible failure. One attempt, no retry.
      */
     private RetryTemplate noRetryTemplate() {
-        return RetryTemplate.builder()
-                .maxAttempts(1)
-                .build();
+        return new RetryTemplate(RetryPolicy.withMaxRetries(0));
     }
 
     @Bean
@@ -59,7 +58,7 @@ public class SpringAiOllamaConfig {
     public OllamaEmbeddingModel ollamaEmbeddingModel(RagProperties props, ObservationRegistry observationRegistry) {
         return OllamaEmbeddingModel.builder()
                 .ollamaApi(buildApi(props))
-                .defaultOptions(OllamaEmbeddingOptions.builder()
+                .options(OllamaEmbeddingOptions.builder()
                         .model(props.getOllama().getEmbeddingModel())
                         .build())
                 .observationRegistry(observationRegistry)

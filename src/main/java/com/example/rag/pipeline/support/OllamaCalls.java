@@ -62,7 +62,6 @@ public class OllamaCalls {
                 OllamaChatOptions.builder()
                         .model(model)
                         .toolCallbacks(tools)
-                        .internalToolExecutionEnabled(false)
                         .toolContext(toolContext)
                         .build());
         ChatResponse response = ollamaChatModel.call(prompt);
