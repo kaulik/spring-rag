@@ -103,6 +103,15 @@ public class StockApiTools {
                         .build());
     }
 
+    /**
+     * Some responses (e.g. getStockDetails) run into the hundreds of KB —
+     * far more than a small local model needs, or can process in time.
+     * Feeding one back whole made the SECOND tool-loop round (the model
+     * digesting the tool result) blow past rag.ollama.timeout-seconds
+     * entirely, cancelling the request rather than answering slowly.
+     */
+    private static final int MAX_RESULT_CHARS = 4000;
+
     private String call(String tool, ToolContext toolContext,
                         Function<org.springframework.web.util.UriBuilder, java.net.URI> uriFn) {
         incrementTaskToolCalls(toolContext);
@@ -113,7 +122,7 @@ public class StockApiTools {
                         String body = restClient.get().uri(uriFn).retrieve().body(String.class);
                         meterRegistry.counter("agent.tool.calls", "tool", tool, "outcome", "success").increment();
                         log.info("[StockApiTools] {} ok, bodyLen={}", tool, body == null ? 0 : body.length());
-                        return body == null ? "" : body;
+                        return truncate(body == null ? "" : body);
                     } catch (Exception e) {
                         meterRegistry.counter("agent.tool.calls", "tool", tool, "outcome", "error").increment();
                         log.warn("[StockApiTools] {} failed: {}", tool, e.getMessage());
@@ -121,6 +130,14 @@ public class StockApiTools {
                                 + ". Answer from what you already know, or say the data is unavailable.";
                     }
                 });
+    }
+
+    private static String truncate(String body) {
+        if (body.length() <= MAX_RESULT_CHARS) {
+            return body;
+        }
+        return body.substring(0, MAX_RESULT_CHARS)
+                + "\n... [truncated, showing " + MAX_RESULT_CHARS + " of " + body.length() + " chars]";
     }
 
     private void incrementTaskToolCalls(ToolContext toolContext) {

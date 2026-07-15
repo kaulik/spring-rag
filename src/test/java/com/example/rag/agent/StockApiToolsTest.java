@@ -121,4 +121,37 @@ class StockApiToolsTest {
         String result = assertDoesNotThrow(() -> tools.getStockNews(null));
         assertEquals("{\"ok\":true}", result);
     }
+
+    @Test
+    void oversizedResponseIsTruncated() throws Exception {
+        // Regression test for a real production failure: getStockDetails
+        // returned a 345 KB body, which blew the second tool-loop round's
+        // model call (feeding that whole blob back to llama3.2:3b as
+        // context) past rag.ollama.timeout-seconds entirely — cancelled,
+        // not just slow. Own embedded server since the shared fixture
+        // always returns the tiny {"ok":true} body.
+        String hugeBody = "x".repeat(345_000);
+        HttpServer bigServer = HttpServer.create(new InetSocketAddress(0), 0);
+        bigServer.createContext("/", exchange -> {
+            byte[] body = hugeBody.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        bigServer.start();
+        try {
+            AgentProperties props = new AgentProperties();
+            props.getStock().setApiBaseUrl("http://localhost:" + bigServer.getAddress().getPort());
+            StockApiTools bigTools = new StockApiTools(props, ObservationRegistry.create(),
+                    new SimpleMeterRegistry(), taskStateRepository, "test-key");
+
+            String result = bigTools.getStockDetails("Tata Steel", ctx());
+
+            assertTrue(result.length() < hugeBody.length(), "oversized tool result must be truncated");
+            assertTrue(result.contains("[truncated, showing 4000 of 345000 chars]"), result);
+        } finally {
+            bigServer.stop(0);
+        }
+    }
 }
