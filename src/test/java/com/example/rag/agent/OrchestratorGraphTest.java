@@ -6,8 +6,8 @@ import com.example.rag.agent.graph.OrchestratorGraphFactory;
 import com.example.rag.agent.graph.OrchestratorState;
 import com.example.rag.memory.TaskStore;
 import com.example.rag.memory.Turn;
-import com.example.rag.tool.StockApiTools;
-import com.example.rag.tool.StockToolProperties;
+import com.example.rag.tool.stock.StockApiTools;
+import com.example.rag.tool.stock.config.StockToolProperties;
 import com.example.rag.common.config.RagProperties;
 import com.example.rag.pipeline.service.RagPipelineService;
 import com.example.rag.pipeline.service.RagPipelineService.RagPipelineResult;
@@ -92,13 +92,14 @@ class OrchestratorGraphTest {
         EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
         ragPipelineService = mock(RagPipelineService.class);
         taskStateRepository = mock(TaskStore.class);
+        OllamaLlmCalls ollamaCalls = new OllamaLlmCalls(chatModel, embeddingModel, new SimpleMeterRegistry());
         StockApiTools stockApiTools = new StockApiTools(
-                stockToolProps, ObservationRegistry.create(), new SimpleMeterRegistry(),
-                taskStateRepository, "");
+                ragProps, stockToolProps, ObservationRegistry.create(), new SimpleMeterRegistry(),
+                taskStateRepository, ollamaCalls, "");
 
         AgentNodes nodes = new AgentNodes(
                 ragProps, agentProps, stockToolProps, ObservationRegistry.create(),
-                new OllamaLlmCalls(chatModel, embeddingModel, new SimpleMeterRegistry()),
+                ollamaCalls,
                 chatModel, ragPipelineService, taskStateRepository, stockApiTools);
         // Real (non-Redis) in-memory checkpoint saver — these are pure
         // graph-wiring tests, no live Redis involved.
@@ -110,9 +111,9 @@ class OrchestratorGraphTest {
         stockServer.stop(0);
     }
 
-    private static ChatResponse toolCallResponse(String toolName) {
+    private static ChatResponse toolCallResponse(String toolName, String argumentsJson) {
         AssistantMessage message = AssistantMessage.builder()
-                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", toolName, "{}")))
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", toolName, argumentsJson)))
                 .build();
         return new ChatResponse(List.of(new Generation(message)));
     }
@@ -182,10 +183,15 @@ class OrchestratorGraphTest {
         // ToolCallingAdvisor executes it against the embedded HTTP server
         // and loops back internally, and the model's SECOND round gets the
         // final text answer — this is Spring AI's own tool-calling loop,
-        // not a hand-rolled cycle.
+        // not a hand-rolled cycle. searchStockSymbol itself makes ONE more
+        // chatModel call of its own (ticker resolution, via the same
+        // underlying ChatModel/OllamaLlmCalls — StockApiTools doesn't go
+        // through ChatClient/advisors for that), so the full sequence is:
+        // router, tool-call round, ticker resolution, final answer round.
         when(chatModel.call(any(Prompt.class)))
                 .thenReturn(chatResponse("STOCKS"))
-                .thenReturn(toolCallResponse("getTrendingStocks"))
+                .thenReturn(toolCallResponse("searchStockSymbol", "{\"query\":\"trending NSE stocks\"}"))
+                .thenReturn(chatResponse("AAPL"))
                 .thenReturn(chatResponse("Tata Steel and Infosys are trending today."));
 
         OrchestratorState state = invoke("What's trending on NSE?");
@@ -193,7 +199,7 @@ class OrchestratorGraphTest {
         assertEquals("stock", state.agentUsed());
         assertEquals("Tata Steel and Infosys are trending today.", state.answer());
         assertEquals(1, stockServerHits.get(), "the tool must actually have been executed once");
-        verify(chatModel, times(3)).call(any(Prompt.class));
+        verify(chatModel, times(4)).call(any(Prompt.class));
         verify(taskStateRepository).incrementToolCalls("req-1");
     }
 
@@ -202,20 +208,26 @@ class OrchestratorGraphTest {
         // Every response requests another tool call — the loop must not run
         // forever; StockLoopCapAdvisor must short-circuit it after
         // AgentNodes.STOCK_MAX_ITERATIONS raw model calls and still return
-        // SOME answer rather than hanging/erroring.
+        // SOME answer rather than hanging/erroring. Since every stubbed
+        // response after the router is a tool-call response, the blanket
+        // stub also answers searchStockSymbol's own ticker-resolution call
+        // with a tool-call message — OllamaLlmCalls.chat() reads that as
+        // blank text, and resolveStockId() falls back to the raw query, so
+        // it never breaks the loop.
         when(chatModel.call(any(Prompt.class)))
                 .thenReturn(chatResponse("STOCKS"))
-                .thenAnswer(invocation -> toolCallResponse("getTrendingStocks"));
+                .thenAnswer(invocation -> toolCallResponse("searchStockSymbol", "{\"query\":\"trending NSE stocks\"}"));
 
         OrchestratorState state = invoke("What's trending on NSE?");
 
         assertEquals("stock", state.agentUsed());
         assertNotNull(state.answer());
         assertFalse(state.answer().isBlank());
-        // router(1) + AgentNodes.STOCK_MAX_ITERATIONS (4) model calls, each
-        // requesting a tool — the cap advisor short-circuits the 5th round
-        // itself rather than reaching the model again.
-        verify(chatModel, times(5)).call(any(Prompt.class));
+        // router(1) + AgentNodes.STOCK_MAX_ITERATIONS (4) tool-loop rounds,
+        // each of the 4 followed by one searchStockSymbol ticker-resolution
+        // call = 1 + 4 + 4 = 9. The cap advisor short-circuits the 5th
+        // tool-loop round itself (no model call, no tool execution).
+        verify(chatModel, times(9)).call(any(Prompt.class));
         verify(taskStateRepository, times(4)).incrementToolCalls("req-1");
         assertEquals(4, stockServerHits.get(), "exactly STOCK_MAX_ITERATIONS tool executions, no more");
     }

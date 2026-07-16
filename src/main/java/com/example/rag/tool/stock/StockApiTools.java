@@ -1,6 +1,9 @@
-package com.example.rag.tool;
+package com.example.rag.tool.stock;
 
+import com.example.rag.common.config.RagProperties;
 import com.example.rag.memory.TaskStore;
+import com.example.rag.model.LlmCalls;
+import com.example.rag.tool.stock.config.StockToolProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -18,8 +21,10 @@ import java.time.Duration;
 import java.util.function.Function;
 
 /**
- * The stock sub-agent's specialized tools — the Indian Stock API
- * (stock.indianapi.in, x-api-key auth) wrapped as Spring AI @Tool methods.
+ * The stock sub-agent's tools — Financial Modeling Prep's REST API
+ * (financialmodelingprep.com/stable, apikey query param auth) wrapped as
+ * Spring AI @Tool methods. apiBaseUrl is the shared /stable root; each tool
+ * appends its own path.
  * Failures come back as error TEXT in the tool result, never exceptions:
  * the model should see a failure and adapt, not crash the request.
  * Each call self-instruments (agent.tool span + agent.tool.calls counter)
@@ -30,84 +35,91 @@ import java.util.function.Function;
 @Component
 public class StockApiTools {
 
+    private final RagProperties ragProperties;
+    private final StockToolProperties stockToolProperties;
     private final ObservationRegistry observationRegistry;
     private final MeterRegistry meterRegistry;
     private final TaskStore taskStateRepository;
+    private final LlmCalls ollamaCalls;
     private final RestClient restClient;
+    private final String apiKey;
 
-    public StockApiTools(StockToolProperties stockToolProperties,
+    public StockApiTools(RagProperties ragProperties,
+                         StockToolProperties stockToolProperties,
                          ObservationRegistry observationRegistry,
                          MeterRegistry meterRegistry,
                          TaskStore taskStateRepository,
+                         LlmCalls ollamaCalls,
                          @Value("${STOCK_API_KEY:}") String apiKey) {
+        this.ragProperties = ragProperties;
+        this.stockToolProperties = stockToolProperties;
         this.observationRegistry = observationRegistry;
         this.meterRegistry = meterRegistry;
         this.taskStateRepository = taskStateRepository;
+        this.ollamaCalls = ollamaCalls;
+        this.apiKey = apiKey;
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
         requestFactory.setReadTimeout(Duration.ofSeconds(10));
         this.restClient = RestClient.builder()
                 .baseUrl(stockToolProperties.getApiBaseUrl())
-                .defaultHeader("x-api-key", apiKey)
                 .requestFactory(requestFactory)
                 .build();
     }
 
-    @Tool(description = "Get current details (price, fundamentals, company info) for one Indian stock by company name.")
-    public String getStockDetails(
-            @ToolParam(description = "Company name, e.g. 'Tata Steel'") String name,
+    @Tool(description = "Look up a stock's ticker symbol and basic match info by company name, "
+            + "asset name, or description.")
+    public String searchStockSymbol(
+            @ToolParam(description = "Company/asset name or description, e.g. 'Apple' or 'Tata Steel'") String query,
             ToolContext toolContext) {
-        return call("getStockDetails", toolContext,
-                uri -> uri.path("/stock").queryParam("name", name).build());
-    }
-
-    @Tool(description = "Get the latest Indian stock market news headlines.")
-    public String getStockNews(ToolContext toolContext) {
-        return call("getStockNews", toolContext, uri -> uri.path("/news").build());
-    }
-
-    @Tool(description = "Get currently trending stocks on the Indian market (NSE/BSE gainers and losers).")
-    public String getTrendingStocks(ToolContext toolContext) {
-        return call("getTrendingStocks", toolContext, uri -> uri.path("/trending").build());
-    }
-
-    @Tool(description = "Get historical price data for an Indian stock. period must be one of: 1m, 6m, 1yr, 3yr, 5yr, 10yr, max. filter must be one of: default, price, pe, sm, evebitda, ptb, mcs.")
-    public String getHistoricalData(
-            @ToolParam(description = "Company name, e.g. 'Tata Steel'") String stockName,
-            @ToolParam(description = "One of: 1m, 6m, 1yr, 3yr, 5yr, 10yr, max") String period,
-            @ToolParam(description = "One of: default, price, pe, sm, evebitda, ptb, mcs") String filter,
-            ToolContext toolContext) {
-        return call("getHistoricalData", toolContext,
-                uri -> uri.path("/historical_data")
-                        .queryParam("stock_name", stockName)
-                        .queryParam("period", period)
-                        .queryParam("filter", filter)
+        String stockId = resolveStockId(query);
+        return call("searchStockSymbol", toolContext,
+                uri -> uri.path("/search-symbol")
+                        .queryParam("query", stockId)
+                        .queryParam("apikey", apiKey)
                         .build());
     }
 
-    @Tool(description = "Get upcoming and recent IPO (initial public offering) data for the Indian market.")
-    public String getIpoData(ToolContext toolContext) {
-        return call("getIpoData", toolContext, uri -> uri.path("/ipo").build());
-    }
-
-    @Tool(description = "Get a financial statement for an Indian stock. stats selects the statement type, e.g. 'income', 'balance', 'cashflow', 'quarter_results', 'yoy_results'.")
-    public String getFinancialStatement(
-            @ToolParam(description = "Company name, e.g. 'Tata Steel'") String stockName,
-            @ToolParam(description = "Statement type, e.g. 'income', 'balance', 'cashflow'") String stats,
+    @Tool(description = "Get a company's profile (sector, industry, market cap, description, exchange, etc.) "
+            + "by ticker symbol. Call searchStockSymbol first if you don't already have a confirmed ticker.")
+    public String getCompanyProfile(
+            @ToolParam(description = "Ticker symbol, e.g. 'AAPL' or 'IBM'") String symbol,
             ToolContext toolContext) {
-        return call("getFinancialStatement", toolContext,
-                uri -> uri.path("/statement")
-                        .queryParam("stock_name", stockName)
-                        .queryParam("stats", stats)
+        return call("getCompanyProfile", toolContext,
+                uri -> uri.path("/profile")
+                        .queryParam("symbol", symbol)
+                        .queryParam("apikey", apiKey)
                         .build());
     }
 
     /**
-     * Some responses (e.g. getStockDetails) run into the hundreds of KB —
-     * far more than a small local model needs, or can process in time.
-     * Feeding one back whole made the SECOND tool-loop round (the model
-     * digesting the tool result) blow past rag.ollama.timeout-seconds
-     * entirely, cancelling the request rather than answering slowly.
+     * The search-symbol endpoint takes a ticker, not free text — resolve one
+     * via a dedicated LLM call first. Never lets resolution failure fail the
+     * tool call: falls back to the raw query text, which the search endpoint
+     * can often still match reasonably (same "never crash on an AI-flakiness
+     * detour" discipline as AgentNodes.route()'s classifier fallback).
+     */
+    private String resolveStockId(String query) {
+        String model = (stockToolProperties.getModel() != null && !stockToolProperties.getModel().isBlank())
+                ? stockToolProperties.getModel()
+                : ragProperties.getOllama().getChatModel();
+        try {
+            String raw = ollamaCalls.chat(StockPrompts.ID_SYSTEM_PROMPT, query, model, "stock-symbol-lookup", 0.0);
+            String resolved = raw == null ? "" : raw.trim();
+            return resolved.isEmpty() ? query : resolved;
+        } catch (Exception e) {
+            log.warn("[StockApiTools] stock id resolution failed for query='{}', falling back to raw query: {}",
+                    query, e.getMessage());
+            return query;
+        }
+    }
+
+    /**
+     * Some responses run into the hundreds of KB — far more than a small
+     * local model needs, or can process in time. Feeding one back whole made
+     * the SECOND tool-loop round (the model digesting the tool result) blow
+     * past rag.ollama.timeout-seconds entirely, cancelling the request
+     * rather than answering slowly.
      */
     private static final int MAX_RESULT_CHARS = 4000;
 
