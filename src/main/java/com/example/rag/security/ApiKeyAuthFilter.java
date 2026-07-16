@@ -1,6 +1,5 @@
 package com.example.rag.security;
 
-import com.example.rag.common.config.GuardrailProperties;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

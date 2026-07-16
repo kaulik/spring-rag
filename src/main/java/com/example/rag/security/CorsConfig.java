@@ -1,4 +1,4 @@
-package com.example.rag.common.config;
+package com.example.rag.security;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;

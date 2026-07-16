@@ -1,5 +1,6 @@
-package com.example.rag.common.config;
+package com.example.rag.model.ollama;
 
+import com.example.rag.common.config.RagProperties;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.OllamaEmbeddingModel;
@@ -27,7 +28,7 @@ import java.time.Duration;
  * fail-fast startup behavior intact.
  */
 @Configuration
-public class SpringAiOllamaConfig {
+public class OllamaModelConfig {
 
     @Bean
     @RefreshScope

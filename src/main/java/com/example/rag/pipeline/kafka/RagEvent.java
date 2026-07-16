@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * Published to Kafka for every v2 /api/v2/query request — query, retrieved
  * chunks, the query embedding, and the final answer, in one message.
- * Chunk-level embeddings are not included: WeaviateService discards them
+ * Chunk-level embeddings are not included: the vector store discards them
  * after retrieval, so only the query embedding exists in-process.
  */
 public record RagEvent(

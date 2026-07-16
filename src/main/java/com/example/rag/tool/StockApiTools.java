@@ -1,7 +1,6 @@
-package com.example.rag.agent.tools;
+package com.example.rag.tool;
 
-import com.example.rag.agent.config.AgentProperties;
-import com.example.rag.agent.memory.TaskStateRepository;
+import com.example.rag.memory.TaskStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -33,13 +32,13 @@ public class StockApiTools {
 
     private final ObservationRegistry observationRegistry;
     private final MeterRegistry meterRegistry;
-    private final TaskStateRepository taskStateRepository;
+    private final TaskStore taskStateRepository;
     private final RestClient restClient;
 
-    public StockApiTools(AgentProperties agentProperties,
+    public StockApiTools(StockToolProperties stockToolProperties,
                          ObservationRegistry observationRegistry,
                          MeterRegistry meterRegistry,
-                         TaskStateRepository taskStateRepository,
+                         TaskStore taskStateRepository,
                          @Value("${STOCK_API_KEY:}") String apiKey) {
         this.observationRegistry = observationRegistry;
         this.meterRegistry = meterRegistry;
@@ -48,7 +47,7 @@ public class StockApiTools {
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
         requestFactory.setReadTimeout(Duration.ofSeconds(10));
         this.restClient = RestClient.builder()
-                .baseUrl(agentProperties.getStock().getApiBaseUrl())
+                .baseUrl(stockToolProperties.getApiBaseUrl())
                 .defaultHeader("x-api-key", apiKey)
                 .requestFactory(requestFactory)
                 .build();

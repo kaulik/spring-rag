@@ -8,9 +8,9 @@ import com.example.rag.pipeline.graph.IngestState;
 import com.example.rag.pipeline.graph.InferenceState;
 import com.example.rag.pipeline.graph.RagGraphFactory;
 import com.example.rag.pipeline.graph.RagPipelineNodes;
-import com.example.rag.pipeline.support.OllamaCalls;
-import com.example.rag.weaviate.WeaviateService;
-import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import com.example.rag.model.ollama.OllamaLlmCalls;
+import com.example.rag.vectorstore.DocumentStore;
+import com.example.rag.vectorstore.RetrievedDoc;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import org.bsc.langgraph4j.CompiledGraph;
@@ -50,7 +50,7 @@ class InferenceGraphTest {
     private RagProperties props;
     private ChatModel chatModel;
     private EmbeddingModel embeddingModel;
-    private WeaviateService weaviateService;
+    private DocumentStore documentStore;
     private InputGuardrailService guardrailService;
     private ResponseSanitizer responseSanitizer;
     private RagGraphFactory factory;
@@ -73,7 +73,7 @@ class InferenceGraphTest {
 
         chatModel = mock(ChatModel.class);
         embeddingModel = mock(EmbeddingModel.class);
-        weaviateService = mock(WeaviateService.class);
+        documentStore = mock(DocumentStore.class);
         guardrailService = mock(InputGuardrailService.class);
         responseSanitizer = mock(ResponseSanitizer.class);
 
@@ -82,13 +82,13 @@ class InferenceGraphTest {
         when(responseSanitizer.sanitize(any())).thenAnswer(inv -> inv.getArgument(0));
         when(embeddingModel.call(any(EmbeddingRequest.class)))
                 .thenReturn(new EmbeddingResponse(List.of(new Embedding(new float[]{0.1f, 0.2f}, 0))));
-        when(weaviateService.hybridSearch(any(), anyList()))
+        when(documentStore.hybridSearch(any(), anyList()))
                 .thenReturn(List.of(DOC1, DOC2, DOC3));
 
         RagPipelineNodes nodes = new RagPipelineNodes(
-                props, new ChunkingService(props), weaviateService, guardrailService,
+                props, new ChunkingService(props), documentStore, guardrailService,
                 responseSanitizer, ObservationRegistry.create(),
-                new OllamaCalls(chatModel, embeddingModel, new SimpleMeterRegistry()));
+                new OllamaLlmCalls(chatModel, embeddingModel, new SimpleMeterRegistry()));
         factory = new RagGraphFactory(nodes);
     }
 
@@ -164,7 +164,7 @@ class InferenceGraphTest {
 
         assertTrue(out.isPresent());
         assertEquals(0, out.get().ingestedCount());
-        verify(weaviateService, never()).ingestChunks(anyList(), anyList());
+        verify(documentStore, never()).ingestChunks(anyList(), anyList());
         verify(embeddingModel, never()).call(any(EmbeddingRequest.class));
     }
 }

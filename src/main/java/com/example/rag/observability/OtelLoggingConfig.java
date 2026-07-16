@@ -1,4 +1,4 @@
-package com.example.rag.common.config;
+package com.example.rag.observability;
 
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.exporter.otlp.http.logs.OtlpHttpLogRecordExporter;

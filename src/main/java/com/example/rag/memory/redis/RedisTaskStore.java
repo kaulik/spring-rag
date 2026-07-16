@@ -1,23 +1,25 @@
-package com.example.rag.agent.memory;
+package com.example.rag.memory.redis;
 
+import com.example.rag.memory.TaskStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 
 /**
- * Per-request task execution state — audit/debugging record with a
- * deliberately different lifecycle (1h TTL) than conversational memory.
- * Fail-open: Redis being down never fails the request.
+ * Redis adapter for {@link TaskStore} — per-request task execution state, an
+ * audit/debugging record with a deliberately different lifecycle (1h TTL)
+ * than conversational memory. Fail-open: Redis being down never fails the
+ * request.
  */
 @Slf4j
-@Repository
+@Component
 @RequiredArgsConstructor
-public class TaskStateRepository {
+public class RedisTaskStore implements TaskStore {
 
     public enum Status { ROUTING, RUNNING, DONE, FAILED }
 
@@ -29,6 +31,7 @@ public class TaskStateRepository {
         return "task:" + requestId;
     }
 
+    @Override
     public void start(String requestId, String conversationId) {
         put(requestId, Map.of(
                 "status", Status.ROUTING.name(),
@@ -37,6 +40,7 @@ public class TaskStateRepository {
                 "toolCalls", "0"));
     }
 
+    @Override
     public void running(String requestId, String intent, String agent) {
         put(requestId, Map.of(
                 "status", Status.RUNNING.name(),
@@ -44,12 +48,14 @@ public class TaskStateRepository {
                 "agent", agent));
     }
 
+    @Override
     public void done(String requestId) {
         put(requestId, Map.of(
                 "status", Status.DONE.name(),
                 "finishedAt", Instant.now().toString()));
     }
 
+    @Override
     public void failed(String requestId, String error) {
         put(requestId, Map.of(
                 "status", Status.FAILED.name(),
@@ -57,6 +63,7 @@ public class TaskStateRepository {
                 "error", error == null ? "" : error));
     }
 
+    @Override
     public void incrementToolCalls(String requestId) {
         try {
             redisTemplate.opsForHash().increment(key(requestId), "toolCalls", 1);

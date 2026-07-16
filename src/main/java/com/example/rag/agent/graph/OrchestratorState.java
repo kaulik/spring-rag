@@ -1,6 +1,6 @@
 package com.example.rag.agent.graph;
 
-import com.example.rag.agent.memory.Turn;
+import com.example.rag.memory.Turn;
 import org.bsc.langgraph4j.state.AgentState;
 
 import java.util.List;

@@ -1,7 +1,7 @@
 package com.example.rag.pipeline.kafka;
 
 import com.example.rag.pipeline.graph.InferenceState;
-import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import com.example.rag.vectorstore.RetrievedDoc;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

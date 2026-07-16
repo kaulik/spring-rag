@@ -1,5 +1,6 @@
-package com.example.rag.pipeline.support;
+package com.example.rag.model.ollama;
 
+import com.example.rag.model.LlmCalls;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -19,19 +20,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Shared Ollama chat/embed entry points for the pipeline, agent, and mcp
- * packages — every call records prompt/completion tokens into the
- * ollama.tokens counter (tags model/stage/direction), keeping token spend
- * comparable across all call sites in the OTLP backend.
+ * Ollama adapter for {@link LlmCalls} — shared chat/embed entry points for the
+ * pipeline, agent, and mcp packages. Every call records prompt/completion
+ * tokens into the ollama.tokens counter (tags model/stage/direction), keeping
+ * token spend comparable across all call sites in the OTLP backend.
  */
 @Component
 @RequiredArgsConstructor
-public class OllamaCalls {
+public class OllamaLlmCalls implements LlmCalls {
 
     private final ChatModel ollamaChatModel;
     private final EmbeddingModel ollamaEmbeddingModel;
     private final MeterRegistry meterRegistry;
 
+    @Override
     public String chat(String systemPrompt, String userPrompt, String model, String stage) {
         return chat(systemPrompt, userPrompt, model, stage, null);
     }
@@ -44,6 +46,7 @@ public class OllamaCalls {
      * same question landing on a different intent from run to run is a bug,
      * not a feature.
      */
+    @Override
     public String chat(String systemPrompt, String userPrompt, String model, String stage, Double temperature) {
         OllamaChatOptions.Builder options = OllamaChatOptions.builder().model(model);
         if (temperature != null) {
@@ -57,6 +60,7 @@ public class OllamaCalls {
         return response.getResult().getOutput().getText();
     }
 
+    @Override
     public List<Double> embed(String text, String model) {
         EmbeddingRequest request = new EmbeddingRequest(
                 List.of(text), OllamaEmbeddingOptions.builder().model(model).build());
@@ -70,6 +74,7 @@ public class OllamaCalls {
         return vector;
     }
 
+    @Override
     public void recordTokens(String model, String stage, ChatResponse response) {
         if (response.getMetadata() != null) {
             recordTokens(model, stage, response.getMetadata().getUsage());

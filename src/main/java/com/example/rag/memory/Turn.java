@@ -1,4 +1,4 @@
-package com.example.rag.agent.memory;
+package com.example.rag.memory;
 
 import java.io.Serializable;
 

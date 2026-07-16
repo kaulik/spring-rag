@@ -1,13 +1,13 @@
 package com.example.rag.mcp;
 
 import com.example.rag.common.config.RagProperties;
-import com.example.rag.pipeline.support.OllamaCalls;
+import com.example.rag.model.LlmCalls;
 import com.example.rag.pipeline.support.RerankScoring;
 import com.example.rag.pipeline.support.SystemPrompts;
 import com.example.rag.security.InputGuardrailService;
 import com.example.rag.common.service.ResponseSanitizer;
-import com.example.rag.weaviate.WeaviateService;
-import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import com.example.rag.vectorstore.DocumentStore;
+import com.example.rag.vectorstore.RetrievedDoc;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
  * the server holding session state between calls (mirrors the LangGraph4j
  * inferenceGraph's node sequence, just externally drivable one stage at a
  * time). Reuses the exact same beans/prompts/model calls as the graph
- * (OllamaCalls, RerankScoring, SystemPrompts) so results are identical
+ * (LlmCalls, RerankScoring, SystemPrompts) so results are identical
  * whether the pipeline runs via POST /api/v2/query or via MCP.
  *
  * These tools bypass RagPipelineController entirely (a different Spring MVC
@@ -45,11 +45,11 @@ import java.util.stream.Collectors;
 public class RagPipelineMcpTools {
 
     private final RagProperties props;
-    private final WeaviateService weaviateService;
+    private final DocumentStore documentStore;
     private final InputGuardrailService guardrailService;
     private final ResponseSanitizer responseSanitizer;
     private final ObservationRegistry observationRegistry;
-    private final OllamaCalls ollamaCalls;
+    private final LlmCalls ollamaCalls;
 
     @Tool(description = "Stage 1 of the RAG pipeline: embed a query string into a vector using the "
             + "configured Ollama embedding model. Feed the returned embedding into the retrieve tool.")
@@ -72,7 +72,7 @@ public class RagPipelineMcpTools {
                     required = false) Integer topK) {
         guardrailService.validateQuery(query);
         List<RetrievedDoc> docs = Observation.createNotStarted("mcp.retrieve", observationRegistry)
-                .observe(() -> weaviateService.hybridSearch(query, queryEmbedding));
+                .observe(() -> documentStore.hybridSearch(query, queryEmbedding));
         List<RetrievedDoc> sanitized = docs.stream()
                 .map(d -> new RetrievedDoc(
                         guardrailService.sanitizeRetrievedChunk(d.getText(), d.getSource()),

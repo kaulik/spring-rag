@@ -3,7 +3,7 @@ package com.example.rag.pipeline.service;
 import com.example.rag.pipeline.graph.IngestState;
 import com.example.rag.pipeline.graph.InferenceState;
 import com.example.rag.pipeline.kafka.RagEventPublisher;
-import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import com.example.rag.vectorstore.RetrievedDoc;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;

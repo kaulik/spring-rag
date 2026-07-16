@@ -5,11 +5,11 @@ import com.example.rag.security.InputGuardrailService;
 import com.example.rag.common.service.ChunkingService;
 import com.example.rag.common.service.ChunkingService.Chunk;
 import com.example.rag.common.service.ResponseSanitizer;
-import com.example.rag.pipeline.support.OllamaCalls;
+import com.example.rag.model.LlmCalls;
 import com.example.rag.pipeline.support.RerankScoring;
 import com.example.rag.pipeline.support.SystemPrompts;
-import com.example.rag.weaviate.WeaviateService;
-import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import com.example.rag.vectorstore.DocumentStore;
+import com.example.rag.vectorstore.RetrievedDoc;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
@@ -29,11 +29,11 @@ public class RagPipelineNodes {
 
     private final RagProperties props;
     private final ChunkingService chunkingService;
-    private final WeaviateService weaviateService;
+    private final DocumentStore documentStore;
     private final InputGuardrailService guardrailService;
     private final ResponseSanitizer responseSanitizer;
     private final ObservationRegistry observationRegistry;
-    private final OllamaCalls ollamaCalls;
+    private final LlmCalls ollamaCalls;
 
     // ── Ingest graph nodes ───────────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ public class RagPipelineNodes {
             log.warn("[RAGv2] store() no chunks to ingest for source '{}'", state.source());
             return Map.of("ingestedCount", 0);
         }
-        weaviateService.ingestChunks(state.chunks(), state.embeddings());
+        documentStore.ingestChunks(state.chunks(), state.embeddings());
         log.info("[RAGv2] store() complete — {} chunks stored", state.chunks().size());
         return Map.of("ingestedCount", state.chunks().size());
     }
@@ -84,7 +84,7 @@ public class RagPipelineNodes {
     }
 
     public Map<String, Object> retrieve(InferenceState state) {
-        List<RetrievedDoc> retrieved = weaviateService.hybridSearch(state.question(), state.queryEmbedding());
+        List<RetrievedDoc> retrieved = documentStore.hybridSearch(state.question(), state.queryEmbedding());
         log.info("[RAGv2] retrieve() hybrid search returned {} docs", retrieved.size());
         return Map.of("retrieved", retrieved);
     }

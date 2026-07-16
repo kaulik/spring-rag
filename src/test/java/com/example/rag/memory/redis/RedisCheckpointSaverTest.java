@@ -1,4 +1,4 @@
-package com.example.rag.agent.memory;
+package com.example.rag.memory.redis;
 
 import org.bsc.langgraph4j.RunnableConfig;
 import org.bsc.langgraph4j.checkpoint.Checkpoint;
@@ -20,7 +20,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * RedisCheckpointSaver round-trips a Checkpoint through a JSON blob per
- * threadId — mirrors ConversationMemoryRepository's/TaskStateRepository's
+ * threadId — mirrors RedisConversationMemory's/RedisTaskStore's
  * mocked-StringRedisTemplate test style. Fail-open is the key contract: a
  * Redis outage must never surface as an exception from put()/list(), since
  * checkpointing is best-effort resilience, not on the primary request path.

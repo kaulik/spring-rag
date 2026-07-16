@@ -1,12 +1,12 @@
 package com.example.rag.mcp;
 
 import com.example.rag.common.config.RagProperties;
-import com.example.rag.pipeline.support.OllamaCalls;
+import com.example.rag.model.ollama.OllamaLlmCalls;
 import com.example.rag.security.InputGuardrailService;
 import com.example.rag.security.InputGuardrailService.InputValidationException;
 import com.example.rag.common.service.ResponseSanitizer;
-import com.example.rag.weaviate.WeaviateService;
-import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import com.example.rag.vectorstore.DocumentStore;
+import com.example.rag.vectorstore.RetrievedDoc;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +39,7 @@ class RagPipelineMcpToolsTest {
 
     private ChatModel chatModel;
     private EmbeddingModel embeddingModel;
-    private WeaviateService weaviateService;
+    private DocumentStore documentStore;
     private InputGuardrailService guardrailService;
     private ResponseSanitizer responseSanitizer;
     private RagPipelineMcpTools tools;
@@ -55,7 +55,7 @@ class RagPipelineMcpToolsTest {
 
         chatModel = mock(ChatModel.class);
         embeddingModel = mock(EmbeddingModel.class);
-        weaviateService = mock(WeaviateService.class);
+        documentStore = mock(DocumentStore.class);
         guardrailService = mock(InputGuardrailService.class);
         responseSanitizer = mock(ResponseSanitizer.class);
 
@@ -63,8 +63,8 @@ class RagPipelineMcpToolsTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         when(responseSanitizer.sanitize(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        OllamaCalls ollamaCalls = new OllamaCalls(chatModel, embeddingModel, new SimpleMeterRegistry());
-        tools = new RagPipelineMcpTools(props, weaviateService, guardrailService,
+        OllamaLlmCalls ollamaCalls = new OllamaLlmCalls(chatModel, embeddingModel, new SimpleMeterRegistry());
+        tools = new RagPipelineMcpTools(props, documentStore, guardrailService,
                 responseSanitizer, ObservationRegistry.create(), ollamaCalls);
     }
 
@@ -92,7 +92,7 @@ class RagPipelineMcpToolsTest {
 
     @Test
     void retrieveMapsAndCapsToTopK() {
-        when(weaviateService.hybridSearch(eq("q"), anyList())).thenReturn(List.of(
+        when(documentStore.hybridSearch(eq("q"), anyList())).thenReturn(List.of(
                 new RetrievedDoc("alpha text", "s1", "s1-chunk-0"),
                 new RetrievedDoc("beta text", "s2", "s2-chunk-0"),
                 new RetrievedDoc("gamma text", "s3", "s3-chunk-0")));

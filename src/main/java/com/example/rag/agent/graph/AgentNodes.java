@@ -1,12 +1,13 @@
 package com.example.rag.agent.graph;
 
 import com.example.rag.agent.config.AgentProperties;
-import com.example.rag.agent.memory.TaskStateRepository;
-import com.example.rag.agent.memory.Turn;
-import com.example.rag.agent.tools.StockApiTools;
+import com.example.rag.memory.TaskStore;
+import com.example.rag.memory.Turn;
+import com.example.rag.tool.StockApiTools;
+import com.example.rag.tool.StockToolProperties;
 import com.example.rag.common.config.RagProperties;
 import com.example.rag.pipeline.service.RagPipelineService;
-import com.example.rag.pipeline.support.OllamaCalls;
+import com.example.rag.model.LlmCalls;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -79,22 +80,25 @@ public class AgentNodes {
 
     private final RagProperties ragProperties;
     private final AgentProperties agentProperties;
+    private final StockToolProperties stockToolProperties;
     private final ObservationRegistry observationRegistry;
-    private final OllamaCalls ollamaCalls;
+    private final LlmCalls ollamaCalls;
     private final RagPipelineService ragPipelineService;
-    private final TaskStateRepository taskStateRepository;
+    private final TaskStore taskStateRepository;
     private final ChatClient stockChatClient;
 
     public AgentNodes(RagProperties ragProperties,
                       AgentProperties agentProperties,
+                      StockToolProperties stockToolProperties,
                       ObservationRegistry observationRegistry,
-                      OllamaCalls ollamaCalls,
+                      LlmCalls ollamaCalls,
                       ChatModel ollamaChatModel,
                       RagPipelineService ragPipelineService,
-                      TaskStateRepository taskStateRepository,
+                      TaskStore taskStateRepository,
                       StockApiTools stockApiTools) {
         this.ragProperties = ragProperties;
         this.agentProperties = agentProperties;
+        this.stockToolProperties = stockToolProperties;
         this.observationRegistry = observationRegistry;
         this.ollamaCalls = ollamaCalls;
         this.ragPipelineService = ragPipelineService;
@@ -177,7 +181,7 @@ public class AgentNodes {
      */
     public Map<String, Object> stockAgent(OrchestratorState state) {
         return Observation.createNotStarted("agent.stock", observationRegistry).observe(() -> {
-            String model = model(agentProperties.getStock().getModel());
+            String model = model(stockToolProperties.getModel());
             long startedAt = System.currentTimeMillis();
             log.info("[Agent:stock] starting requestId={} model={}", state.requestId(), model);
             try {
@@ -326,11 +330,11 @@ public class AgentNodes {
         private final int maxIterations;
         private final String model;
         private final String stage;
-        private final OllamaCalls ollamaCalls;
+        private final LlmCalls ollamaCalls;
         private final String requestId;
         private final AtomicInteger iterations = new AtomicInteger(0);
 
-        StockLoopCapAdvisor(int maxIterations, String model, String stage, OllamaCalls ollamaCalls, String requestId) {
+        StockLoopCapAdvisor(int maxIterations, String model, String stage, LlmCalls ollamaCalls, String requestId) {
             this.maxIterations = maxIterations;
             this.model = model;
             this.stage = stage;

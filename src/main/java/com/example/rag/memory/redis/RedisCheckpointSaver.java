@@ -1,4 +1,4 @@
-package com.example.rag.agent.memory;
+package com.example.rag.memory.redis;
 
 import com.example.rag.agent.graph.OrchestratorStateSerializer;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +18,7 @@ import java.util.LinkedList;
  * endpoint/UI (none exists yet). Keyed by RunnableConfig.threadId (the
  * conversationId, wired in AgentOrchestratorService), stored as one JSON blob
  * per thread — same conv:{id}/task:{id}-style Redis pattern as
- * ConversationMemoryRepository/TaskStateRepository, just a shorter TTL since
+ * RedisConversationMemory/RedisTaskStore, just a shorter TTL since
  * this is for recovering an in-flight request, not long-term history.
  * Fail-open like both of those: a Redis outage degrades to no checkpointing,
  * never a failed request — the graph still runs to completion in memory.

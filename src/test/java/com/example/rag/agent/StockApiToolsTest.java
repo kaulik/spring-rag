@@ -1,8 +1,8 @@
 package com.example.rag.agent;
 
-import com.example.rag.agent.config.AgentProperties;
-import com.example.rag.agent.memory.TaskStateRepository;
-import com.example.rag.agent.tools.StockApiTools;
+import com.example.rag.memory.TaskStore;
+import com.example.rag.tool.StockApiTools;
+import com.example.rag.tool.StockToolProperties;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
@@ -30,7 +30,7 @@ class StockApiToolsTest {
 
     private HttpServer server;
     private StockApiTools tools;
-    private TaskStateRepository taskStateRepository;
+    private TaskStore taskStateRepository;
     private final AtomicReference<String> lastPath = new AtomicReference<>();
     private final AtomicReference<String> lastQuery = new AtomicReference<>();
     private final AtomicReference<String> lastApiKey = new AtomicReference<>();
@@ -50,9 +50,9 @@ class StockApiToolsTest {
         });
         server.start();
 
-        AgentProperties props = new AgentProperties();
-        props.getStock().setApiBaseUrl("http://localhost:" + server.getAddress().getPort());
-        taskStateRepository = mock(TaskStateRepository.class);
+        StockToolProperties props = new StockToolProperties();
+        props.setApiBaseUrl("http://localhost:" + server.getAddress().getPort());
+        taskStateRepository = mock(TaskStore.class);
         tools = new StockApiTools(props, ObservationRegistry.create(), new SimpleMeterRegistry(),
                 taskStateRepository, "test-key");
     }
@@ -141,8 +141,8 @@ class StockApiToolsTest {
         });
         bigServer.start();
         try {
-            AgentProperties props = new AgentProperties();
-            props.getStock().setApiBaseUrl("http://localhost:" + bigServer.getAddress().getPort());
+            StockToolProperties props = new StockToolProperties();
+            props.setApiBaseUrl("http://localhost:" + bigServer.getAddress().getPort());
             StockApiTools bigTools = new StockApiTools(props, ObservationRegistry.create(),
                     new SimpleMeterRegistry(), taskStateRepository, "test-key");
 

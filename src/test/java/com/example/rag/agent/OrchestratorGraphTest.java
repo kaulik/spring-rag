@@ -4,13 +4,14 @@ import com.example.rag.agent.config.AgentProperties;
 import com.example.rag.agent.graph.AgentNodes;
 import com.example.rag.agent.graph.OrchestratorGraphFactory;
 import com.example.rag.agent.graph.OrchestratorState;
-import com.example.rag.agent.memory.TaskStateRepository;
-import com.example.rag.agent.memory.Turn;
-import com.example.rag.agent.tools.StockApiTools;
+import com.example.rag.memory.TaskStore;
+import com.example.rag.memory.Turn;
+import com.example.rag.tool.StockApiTools;
+import com.example.rag.tool.StockToolProperties;
 import com.example.rag.common.config.RagProperties;
 import com.example.rag.pipeline.service.RagPipelineService;
 import com.example.rag.pipeline.service.RagPipelineService.RagPipelineResult;
-import com.example.rag.pipeline.support.OllamaCalls;
+import com.example.rag.model.ollama.OllamaLlmCalls;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
@@ -51,7 +52,7 @@ class OrchestratorGraphTest {
 
     private ChatModel chatModel;
     private RagPipelineService ragPipelineService;
-    private TaskStateRepository taskStateRepository;
+    private TaskStore taskStateRepository;
     private OrchestratorGraphFactory factory;
     private HttpServer stockServer;
     private final AtomicInteger stockServerHits = new AtomicInteger();
@@ -66,6 +67,7 @@ class OrchestratorGraphTest {
         ragProps.getOllama().setTimeoutSeconds(60);
 
         AgentProperties agentProps = new AgentProperties();
+        StockToolProperties stockToolProps = new StockToolProperties();
 
         // Real (JDK built-in) HTTP server so the stock agent's tool
         // execution round trip is exercised end to end, not mocked away.
@@ -79,7 +81,7 @@ class OrchestratorGraphTest {
             }
         });
         stockServer.start();
-        agentProps.getStock().setApiBaseUrl("http://localhost:" + stockServer.getAddress().getPort());
+        stockToolProps.setApiBaseUrl("http://localhost:" + stockServer.getAddress().getPort());
 
         chatModel = mock(ChatModel.class);
         // ChatClient always builds its request options via
@@ -89,14 +91,14 @@ class OrchestratorGraphTest {
         when(chatModel.getOptions()).thenReturn(org.springframework.ai.ollama.api.OllamaChatOptions.builder().build());
         EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
         ragPipelineService = mock(RagPipelineService.class);
-        taskStateRepository = mock(TaskStateRepository.class);
+        taskStateRepository = mock(TaskStore.class);
         StockApiTools stockApiTools = new StockApiTools(
-                agentProps, ObservationRegistry.create(), new SimpleMeterRegistry(),
+                stockToolProps, ObservationRegistry.create(), new SimpleMeterRegistry(),
                 taskStateRepository, "");
 
         AgentNodes nodes = new AgentNodes(
-                ragProps, agentProps, ObservationRegistry.create(),
-                new OllamaCalls(chatModel, embeddingModel, new SimpleMeterRegistry()),
+                ragProps, agentProps, stockToolProps, ObservationRegistry.create(),
+                new OllamaLlmCalls(chatModel, embeddingModel, new SimpleMeterRegistry()),
                 chatModel, ragPipelineService, taskStateRepository, stockApiTools);
         // Real (non-Redis) in-memory checkpoint saver — these are pure
         // graph-wiring tests, no live Redis involved.

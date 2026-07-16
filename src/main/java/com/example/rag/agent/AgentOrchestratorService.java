@@ -1,9 +1,9 @@
 package com.example.rag.agent;
 
 import com.example.rag.agent.graph.OrchestratorState;
-import com.example.rag.agent.memory.ConversationMemoryRepository;
-import com.example.rag.agent.memory.TaskStateRepository;
-import com.example.rag.agent.memory.Turn;
+import com.example.rag.memory.ConversationMemory;
+import com.example.rag.memory.TaskStore;
+import com.example.rag.memory.Turn;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -27,14 +27,14 @@ import java.util.UUID;
 public class AgentOrchestratorService {
 
     private final CompiledGraph<OrchestratorState> orchestratorGraph;
-    private final ConversationMemoryRepository conversationMemory;
-    private final TaskStateRepository taskState;
+    private final ConversationMemory conversationMemory;
+    private final TaskStore taskState;
     private final ObservationRegistry observationRegistry;
     private final MeterRegistry meterRegistry;
 
     public AgentOrchestratorService(@Qualifier("orchestratorGraph") CompiledGraph<OrchestratorState> orchestratorGraph,
-                                    ConversationMemoryRepository conversationMemory,
-                                    TaskStateRepository taskState,
+                                    ConversationMemory conversationMemory,
+                                    TaskStore taskState,
                                     ObservationRegistry observationRegistry,
                                     MeterRegistry meterRegistry) {
         this.orchestratorGraph = orchestratorGraph;

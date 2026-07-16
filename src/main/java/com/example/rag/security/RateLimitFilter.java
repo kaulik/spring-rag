@@ -1,6 +1,5 @@
 package com.example.rag.security;
 
-import com.example.rag.common.config.GuardrailProperties;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.Refill;

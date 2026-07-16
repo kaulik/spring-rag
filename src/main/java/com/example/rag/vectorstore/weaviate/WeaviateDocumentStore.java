@@ -1,7 +1,9 @@
-package com.example.rag.weaviate;
+package com.example.rag.vectorstore.weaviate;
 
 import com.example.rag.common.config.RagProperties;
 import com.example.rag.common.service.ChunkingService.Chunk;
+import com.example.rag.vectorstore.DocumentStore;
+import com.example.rag.vectorstore.RetrievedDoc;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -10,8 +12,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import jakarta.annotation.PostConstruct;
-import lombok.AllArgsConstructor;
-import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -34,21 +34,13 @@ import java.util.stream.Collectors;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class WeaviateService {
+public class WeaviateDocumentStore implements DocumentStore {
 
     private final RagProperties props;
     private final ObservationRegistry observationRegistry;
     private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newHttpClient();
-
-    @Data
-    @AllArgsConstructor
-    public static class RetrievedDoc implements java.io.Serializable {
-        private String text;
-        private String source;
-        private String chunkId;
-    }
 
     // -------------------------------------------------------------------------
     // Schema bootstrap
@@ -133,6 +125,7 @@ public class WeaviateService {
     // -------------------------------------------------------------------------
 
     /** Batch-insert chunks into Weaviate together with their pre-computed embedding vectors. */
+    @Override
     public void ingestChunks(List<Chunk> chunks, List<List<Double>> embeddings) {
         if (chunks.isEmpty()) return;
         if (embeddings.size() != chunks.size()) {
@@ -224,6 +217,7 @@ public class WeaviateService {
      * @param queryEmbedding Pre-computed query vector (used for vector side).
      * @return Up to {@code rag.retrieval.top-k} matched documents.
      */
+    @Override
     public List<RetrievedDoc> hybridSearch(String query, List<Double> queryEmbedding) {
         List<RetrievedDoc> docs = Observation.createNotStarted("weaviate.search", observationRegistry)
                 .lowCardinalityKeyValue("collection", props.getWeaviate().getCollection())

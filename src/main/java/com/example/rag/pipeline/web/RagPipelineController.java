@@ -3,7 +3,7 @@ package com.example.rag.pipeline.web;
 import com.example.rag.security.InputGuardrailService;
 import com.example.rag.pipeline.service.RagPipelineService;
 import com.example.rag.pipeline.service.RagPipelineService.RagPipelineResult;
-import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import com.example.rag.vectorstore.RetrievedDoc;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;

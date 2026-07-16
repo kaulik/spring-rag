@@ -1,26 +1,29 @@
-package com.example.rag.agent.memory;
+package com.example.rag.memory.redis;
 
+import com.example.rag.memory.ConversationMemory;
+import com.example.rag.memory.Turn;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Conversational memory: dialogue turns per conversationId, kept separate
- * from per-request TaskState by design. Redis LIST trimmed to a window,
- * TTL refreshed on write. Fail-open like the Kafka publisher — a Redis
- * outage degrades to memory-less answers, never a failed request.
+ * Redis adapter for {@link ConversationMemory} — dialogue turns per
+ * conversationId, kept separate from per-request TaskStore by design. Redis
+ * LIST trimmed to a window, TTL refreshed on write. Fail-open like the Kafka
+ * publisher — a Redis outage degrades to memory-less answers, never a failed
+ * request.
  */
 @Slf4j
-@Repository
+@Component
 @RequiredArgsConstructor
-public class ConversationMemoryRepository {
+public class RedisConversationMemory implements ConversationMemory {
 
     private static final Duration TTL = Duration.ofHours(24);
 
@@ -34,6 +37,7 @@ public class ConversationMemoryRepository {
         return "conv:" + conversationId;
     }
 
+    @Override
     public void append(String conversationId, Turn turn) {
         try {
             String json = objectMapper.writeValueAsString(turn);
@@ -46,6 +50,7 @@ public class ConversationMemoryRepository {
         }
     }
 
+    @Override
     public List<Turn> recentTurns(String conversationId) {
         try {
             List<String> raw = redisTemplate.opsForList().range(key(conversationId), 0, -1);

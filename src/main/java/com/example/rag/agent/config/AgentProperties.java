@@ -17,7 +17,6 @@ public class AgentProperties {
 
     private Agent router = new Agent();
     private Agent knowledgeBase = new Agent();
-    private Stock stock = new Stock();
     private Agent general = new Agent();
     private Memory memory = new Memory();
 
@@ -25,12 +24,6 @@ public class AgentProperties {
     public static class Agent {
         /** Blank = use rag.ollama.chat-model. */
         private String model = "";
-    }
-
-    @Data
-    public static class Stock {
-        private String model = "";
-        private String apiBaseUrl = "https://stock.indianapi.in";
     }
 
     @Data

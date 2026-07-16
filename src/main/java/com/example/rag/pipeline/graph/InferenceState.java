@@ -1,6 +1,6 @@
 package com.example.rag.pipeline.graph;
 
-import com.example.rag.weaviate.WeaviateService.RetrievedDoc;
+import com.example.rag.vectorstore.RetrievedDoc;
 import org.bsc.langgraph4j.state.AgentState;
 
 import java.util.List;

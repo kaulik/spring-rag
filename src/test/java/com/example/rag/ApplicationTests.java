@@ -1,6 +1,6 @@
 package com.example.rag;
 
-import com.example.rag.agent.memory.RedisCheckpointSaver;
+import com.example.rag.memory.redis.RedisCheckpointSaver;
 import org.bsc.langgraph4j.RunnableConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
