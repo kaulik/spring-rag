@@ -4,6 +4,7 @@ import com.example.rag.agent.graph.OrchestratorState;
 import com.example.rag.memory.ConversationMemory;
 import com.example.rag.memory.TaskStore;
 import com.example.rag.memory.Turn;
+import com.example.rag.memory.summary.PromptSummarizerService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -29,17 +30,20 @@ public class AgentOrchestratorService {
     private final CompiledGraph<OrchestratorState> orchestratorGraph;
     private final ConversationMemory conversationMemory;
     private final TaskStore taskState;
+    private final PromptSummarizerService promptSummarizer;
     private final ObservationRegistry observationRegistry;
     private final MeterRegistry meterRegistry;
 
     public AgentOrchestratorService(@Qualifier("orchestratorGraph") CompiledGraph<OrchestratorState> orchestratorGraph,
                                     ConversationMemory conversationMemory,
                                     TaskStore taskState,
+                                    PromptSummarizerService promptSummarizer,
                                     ObservationRegistry observationRegistry,
                                     MeterRegistry meterRegistry) {
         this.orchestratorGraph = orchestratorGraph;
         this.conversationMemory = conversationMemory;
         this.taskState = taskState;
+        this.promptSummarizer = promptSummarizer;
         this.observationRegistry = observationRegistry;
         this.meterRegistry = meterRegistry;
     }
@@ -62,6 +66,7 @@ public class AgentOrchestratorService {
             List<Turn> recentTurns = conversationMemory.recentTurns(conversationId);
             log.info("[Orchestrator] loaded {} recent turn(s) requestId={} conversationId={}",
                     recentTurns.size(), requestId, conversationId);
+            recentTurns = promptSummarizer.maybeSummarize(conversationId, recentTurns);
 
             log.info("[Orchestrator] invoking graph requestId={} conversationId={}", requestId, conversationId);
             OrchestratorState state = orchestratorGraph

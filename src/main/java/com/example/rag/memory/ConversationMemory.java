@@ -18,4 +18,7 @@ public interface ConversationMemory {
 
     /** The most recent turns for a conversation, oldest first (empty if none / store down). */
     List<Turn> recentTurns(String conversationId);
+
+    /** Replace the stored history for a conversation (e.g. after summarization compacts it). */
+    void replace(String conversationId, List<Turn> turns);
 }

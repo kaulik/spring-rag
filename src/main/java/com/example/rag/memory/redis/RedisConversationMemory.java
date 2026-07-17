@@ -67,4 +67,22 @@ public class RedisConversationMemory implements ConversationMemory {
             return List.of();
         }
     }
+
+    @Override
+    public void replace(String conversationId, List<Turn> turns) {
+        try {
+            String key = key(conversationId);
+            redisTemplate.delete(key);
+            if (!turns.isEmpty()) {
+                List<String> jsons = new ArrayList<>(turns.size());
+                for (Turn turn : turns) {
+                    jsons.add(objectMapper.writeValueAsString(turn));
+                }
+                redisTemplate.opsForList().rightPushAll(key, jsons);
+                redisTemplate.expire(key, TTL);
+            }
+        } catch (Exception e) {
+            log.warn("[ConversationMemory] replace failed for {}: {}", conversationId, e.getMessage());
+        }
+    }
 }

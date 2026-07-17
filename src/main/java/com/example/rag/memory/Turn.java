@@ -17,4 +17,5 @@ public record Turn(String role, String text, long ts) implements Serializable {
 
     public static final String ROLE_USER = "user";
     public static final String ROLE_ASSISTANT = "assistant";
+    public static final String ROLE_SUMMARY = "summary";
 }
