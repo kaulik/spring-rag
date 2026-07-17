@@ -50,13 +50,15 @@ class StockApiToolsTest {
     private final AtomicReference<String> lastPath = new AtomicReference<>();
     private final AtomicReference<String> lastQuery = new AtomicReference<>();
 
+    private final AtomicReference<String> responseBody = new AtomicReference<>("{\"ok\":true}");
+
     @BeforeEach
     void setUp() throws Exception {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/", exchange -> {
             lastPath.set(exchange.getRequestURI().getPath());
             lastQuery.set(exchange.getRequestURI().getQuery());
-            byte[] body = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+            byte[] body = responseBody.get().getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(body);
@@ -155,6 +157,71 @@ class StockApiToolsTest {
         // getCompanyProfile takes an already-resolved ticker directly, unlike
         // searchStockSymbol — no chat-model call should happen for it.
         verifyNoInteractions(chatModel);
+    }
+
+    @Test
+    void searchStockSymbolExtractsOnlySymbolAndName() {
+        responseBody.set("""
+                [
+                  {"symbol":"AAPL","name":"Apple Inc.","currency":"USD","exchangeFullName":"NASDAQ Global Select","exchange":"NASDAQ"},
+                  {"symbol":"AAPL.MX","name":"Apple Inc.","currency":"MXN","exchangeFullName":"Mexico Stock Exchange","exchange":"BMV"}
+                ]
+                """);
+        when(chatModel.call(any(Prompt.class))).thenReturn(chatResponse("AAPL"));
+
+        String result = tools.searchStockSymbol("Apple", ctx());
+
+        assertTrue(result.contains("\"symbol\":\"AAPL\""), result);
+        assertTrue(result.contains("\"name\":\"Apple Inc.\""), result);
+        assertFalse(result.contains("currency"), "extraction must drop fields the model doesn't need: " + result);
+        assertFalse(result.contains("exchangeFullName"), result);
+    }
+
+    @Test
+    void searchStockSymbolWithNoMatchesReturnsFriendlyMessage() {
+        responseBody.set("[]");
+        when(chatModel.call(any(Prompt.class))).thenReturn(chatResponse("NOPE"));
+
+        String result = tools.searchStockSymbol("a company that does not exist", ctx());
+
+        assertEquals("No matching stock symbols found.", result);
+    }
+
+    @Test
+    void searchStockSymbolFallsBackToRawBodyWhenResponseIsNotTheExpectedShape() {
+        // An FMP-style error payload (object, not an array) — extraction must
+        // fail closed to the raw text rather than lose the tool result.
+        responseBody.set("{\"Error Message\":\"Invalid API KEY\"}");
+        when(chatModel.call(any(Prompt.class))).thenReturn(chatResponse("AAPL"));
+
+        String result = tools.searchStockSymbol("Apple", ctx());
+
+        assertEquals("{\"Error Message\":\"Invalid API KEY\"}", result);
+    }
+
+    @Test
+    void companyProfileExtractsOnlyDescription() {
+        responseBody.set("""
+                [
+                  {"symbol":"AAPL","price":195.89,"marketCap":3000000000000,"companyName":"Apple Inc.",
+                   "cik":"0000320193","isin":"US0378331005","sector":"Technology","industry":"Consumer Electronics",
+                   "description":"Apple Inc. designs, manufactures, and markets smartphones, personal computers, tablets, wearables, and accessories worldwide."}
+                ]
+                """);
+
+        String result = tools.getCompanyProfile("AAPL", ctx());
+
+        assertEquals("Apple Inc. designs, manufactures, and markets smartphones, personal computers, "
+                + "tablets, wearables, and accessories worldwide.", result);
+    }
+
+    @Test
+    void companyProfileWithNoMatchesReturnsFriendlyMessage() {
+        responseBody.set("[]");
+
+        String result = tools.getCompanyProfile("ZZZZ", ctx());
+
+        assertEquals("No company profile found for the given symbol.", result);
     }
 
     @Test
