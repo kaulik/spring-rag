@@ -3,11 +3,23 @@
 pipeline {
     agent any
 
+    options {
+        // Makes checkout conditional (see the 'Checkout' stage below) — declarative
+        // pipelines checkout SCM implicitly before the first stage otherwise, with
+        // no way to skip it.
+        skipDefaultCheckout()
+    }
+
     parameters {
         string(
             name: 'BUILD_ID',
             defaultValue: "${env.BUILD_NUMBER}",
             description: 'Docker image tag / build identifier'
+        )
+        booleanParam(
+            name: 'DO_CHECKOUT',
+            defaultValue: true,
+            description: 'Check out source from git before building. Uncheck to reuse whatever is already in the workspace (e.g. from a previous run) — build will fail if the workspace is empty.'
         )
         booleanParam(
             name: 'TRIGGER_CD',
@@ -30,6 +42,13 @@ pipeline {
     }
 
     stages {
+
+        stage('Checkout') {
+            when { expression { params.DO_CHECKOUT } }
+            steps {
+                checkout scm
+            }
+        }
 
         stage('Validate') {
             steps {
