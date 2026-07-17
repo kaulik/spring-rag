@@ -140,6 +140,15 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-opentelemetry</artifactId>
     </dependency>
+    <!-- Boot 4.1 split tracing autoconfiguration out of spring-boot-starter-actuator
+         entirely (spring-boot-actuator-autoconfigure and spring-boot-opentelemetry
+         both ship zero tracing classes as of 4.1.0) — without this, ObservationRegistry
+         has no Tracer/TracingObservationHandler and every span silently no-ops, even
+         though metrics/logs (which go through separate mechanisms) keep working. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-micrometer-tracing-opentelemetry</artifactId>
+    </dependency>
     <dependency>
       <groupId>io.opentelemetry</groupId>
       <artifactId>opentelemetry-exporter-otlp</artifactId>
