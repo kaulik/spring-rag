@@ -39,7 +39,10 @@ public class RagGraphFactory {
 
     /**
      * START → embedQuery → retrieve → sanitize
-     *   → (rerank enabled and docs present ? rerank → generate : generate) → END
+     *   → (rerank enabled and docs present ? rerank : skip) → END
+     *
+     * Retrieval-only: no generation node. The orchestrator's generalChat node
+     * turns the retrieved context into the final answer.
      */
     public CompiledGraph<InferenceState> buildInferenceGraph() throws GraphStateException {
         return new StateGraph<>(InferenceState::new)
@@ -47,14 +50,12 @@ public class RagGraphFactory {
                 .addNode("retrieve", node_async(nodes::retrieve))
                 .addNode("sanitize", node_async(nodes::sanitize))
                 .addNode("rerank", node_async(nodes::rerank))
-                .addNode("generate", node_async(nodes::generate))
                 .addEdge(START, "embedQuery")
                 .addEdge("embedQuery", "retrieve")
                 .addEdge("retrieve", "sanitize")
                 .addConditionalEdges("sanitize", edge_async(nodes::rerankRoute),
-                        Map.of("rerank", "rerank", "skip", "generate"))
-                .addEdge("rerank", "generate")
-                .addEdge("generate", END)
+                        Map.of("rerank", "rerank", "skip", END))
+                .addEdge("rerank", END)
                 .compile();
     }
 }

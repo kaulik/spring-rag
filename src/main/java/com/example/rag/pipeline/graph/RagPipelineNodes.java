@@ -4,7 +4,6 @@ import com.example.rag.common.config.RagProperties;
 import com.example.rag.security.InputGuardrailService;
 import com.example.rag.common.service.ChunkingService;
 import com.example.rag.common.service.ChunkingService.Chunk;
-import com.example.rag.common.service.ResponseSanitizer;
 import com.example.rag.model.LlmCalls;
 import com.example.rag.pipeline.support.RerankScoring;
 import com.example.rag.pipeline.support.SystemPrompts;
@@ -31,7 +30,6 @@ public class RagPipelineNodes {
     private final ChunkingService chunkingService;
     private final DocumentStore documentStore;
     private final InputGuardrailService guardrailService;
-    private final ResponseSanitizer responseSanitizer;
     private final ObservationRegistry observationRegistry;
     private final LlmCalls ollamaCalls;
 
@@ -139,25 +137,17 @@ public class RagPipelineNodes {
         return Map.of("reranked", reranked);
     }
 
-    public Map<String, Object> generate(InferenceState state) {
-        // When the rerank branch was skipped, apply v1's disabled-path truncation.
-        List<RetrievedDoc> docs = state.reranked().orElseGet(() -> {
+    /**
+     * Final context selection, formerly the head of the (now-removed) generate
+     * node: when rerank was skipped, truncate sanitized docs to top-k. Called by
+     * RagPipelineService after the graph runs — generation itself now happens in
+     * the orchestrator's generalChat node.
+     */
+    public List<RetrievedDoc> selectContextDocs(InferenceState state) {
+        return state.reranked().orElseGet(() -> {
             List<RetrievedDoc> sanitized = state.sanitized();
             return sanitized.isEmpty() ? sanitized : sanitized.subList(0, topK(sanitized));
         });
-
-        String context = docs.stream()
-                .map(RetrievedDoc::getText)
-                .collect(Collectors.joining("\n\n"));
-
-        String prompt = SystemPrompts.answerUserPrompt(context, state.question());
-
-        String raw = Observation.createNotStarted("rag2.generate", observationRegistry)
-                .observe(() -> ollamaCalls.chat(
-                        SystemPrompts.ANSWER_SYSTEM_PROMPT, prompt, props.getOllama().getChatModel(), "generate"));
-        String answer = responseSanitizer.sanitize(raw);
-        log.info("[RAGv2] generate() answer len={}", answer.length());
-        return Map.of("answer", answer, "reranked", docs);
     }
 
     // ── Spring AI call helpers ───────────────────────────────────────────────

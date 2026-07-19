@@ -3,7 +3,6 @@ package com.example.rag.pipeline;
 import com.example.rag.common.config.RagProperties;
 import com.example.rag.security.InputGuardrailService;
 import com.example.rag.common.service.ChunkingService;
-import com.example.rag.common.service.ResponseSanitizer;
 import com.example.rag.pipeline.graph.IngestState;
 import com.example.rag.pipeline.graph.InferenceState;
 import com.example.rag.pipeline.graph.RagGraphFactory;
@@ -37,9 +36,10 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for the v2 inference/ingest graph wiring — no Spring context,
- * all model/store dependencies mocked. Locks the behavioral parity contract
- * with v1 (rerank ordering, disabled-path truncation, failure fallback).
+ * Unit tests for the v2 retrieval/ingest graph wiring — no Spring context,
+ * all model/store dependencies mocked. The graph is retrieval-only now (no
+ * generation); it locks rerank ordering, the skip-path selection done by
+ * RagPipelineNodes.selectContextDocs, and rerank failure fallback.
  */
 class InferenceGraphTest {
 
@@ -52,7 +52,7 @@ class InferenceGraphTest {
     private EmbeddingModel embeddingModel;
     private DocumentStore documentStore;
     private InputGuardrailService guardrailService;
-    private ResponseSanitizer responseSanitizer;
+    private RagPipelineNodes nodes;
     private RagGraphFactory factory;
 
     @BeforeEach
@@ -75,19 +75,17 @@ class InferenceGraphTest {
         embeddingModel = mock(EmbeddingModel.class);
         documentStore = mock(DocumentStore.class);
         guardrailService = mock(InputGuardrailService.class);
-        responseSanitizer = mock(ResponseSanitizer.class);
 
         when(guardrailService.sanitizeRetrievedChunk(any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
-        when(responseSanitizer.sanitize(any())).thenAnswer(inv -> inv.getArgument(0));
         when(embeddingModel.call(any(EmbeddingRequest.class)))
                 .thenReturn(new EmbeddingResponse(List.of(new Embedding(new float[]{0.1f, 0.2f}, 0))));
         when(documentStore.hybridSearch(any(), anyList()))
                 .thenReturn(List.of(DOC1, DOC2, DOC3));
 
-        RagPipelineNodes nodes = new RagPipelineNodes(
+        nodes = new RagPipelineNodes(
                 props, new ChunkingService(props), documentStore, guardrailService,
-                responseSanitizer, ObservationRegistry.create(),
+                ObservationRegistry.create(),
                 new OllamaLlmCalls(chatModel, embeddingModel, new SimpleMeterRegistry()));
         factory = new RagGraphFactory(nodes);
     }
@@ -96,16 +94,11 @@ class InferenceGraphTest {
         return new ChatResponse(List.of(new Generation(new AssistantMessage(text))));
     }
 
-    /** Routes mocked chat calls by system prompt: rerank scorer vs answer generator. */
-    private void mockChat(String rerankJson, String answer) {
+    /** Mocks the rerank scorer chat call (the only LLM call left in the graph). */
+    private void mockRerank(String rerankJson) {
         when(chatModel.call(any(Prompt.class))).thenAnswer(inv -> {
-            Prompt p = inv.getArgument(0);
-            String system = p.getInstructions().get(0).getText();
-            if (system.contains("document relevance scorer")) {
-                if (rerankJson == null) throw new RuntimeException("rerank LLM down");
-                return chatResponse(rerankJson);
-            }
-            return chatResponse(answer);
+            if (rerankJson == null) throw new RuntimeException("rerank LLM down");
+            return chatResponse(rerankJson);
         });
     }
 
@@ -119,40 +112,37 @@ class InferenceGraphTest {
 
     @Test
     void rerankEnabledOrdersByScoreAndTruncates() throws Exception {
-        mockChat("{\"scores\": [{\"id\": 1, \"score\": 4.0}, {\"id\": 2, \"score\": 1.0}, {\"id\": 3, \"score\": 5.0}]}",
-                "the answer");
+        mockRerank("{\"scores\": [{\"id\": 1, \"score\": 4.0}, {\"id\": 2, \"score\": 1.0}, {\"id\": 3, \"score\": 5.0}]}");
 
         InferenceState state = invokeInference();
 
-        assertEquals("the answer", state.answer());
-        List<RetrievedDoc> sources = state.reranked().orElseThrow();
+        List<RetrievedDoc> sources = nodes.selectContextDocs(state);
         // scores: doc3=5.0, doc1=4.0, doc2=1.0 → top-2 = [doc3, doc1]
         assertEquals(List.of("s3-chunk-0", "s1-chunk-0"),
                 sources.stream().map(RetrievedDoc::getChunkId).toList());
     }
 
     @Test
-    void rerankDisabledKeepsHybridOrderTopK() throws Exception {
+    void rerankDisabledSelectsHybridOrderTopK() throws Exception {
         props.getRetrieval().setRerankEnabled(false);
-        mockChat(null, "the answer");
 
         InferenceState state = invokeInference();
 
-        // top-2 in hybrid order, no rerank chat call made
+        // rerank skipped → no chat call at all; selectContextDocs truncates to top-2 hybrid order
+        verify(chatModel, never()).call(any(Prompt.class));
+        assertTrue(state.reranked().isEmpty(), "skip path must not set reranked");
         assertEquals(List.of("s1-chunk-0", "s2-chunk-0"),
-                state.reranked().orElseThrow().stream().map(RetrievedDoc::getChunkId).toList());
-        verify(chatModel, times(1)).call(any(Prompt.class)); // generate only
+                nodes.selectContextDocs(state).stream().map(RetrievedDoc::getChunkId).toList());
     }
 
     @Test
     void rerankFailureFallsBackToHybridOrder() throws Exception {
-        mockChat(null, "the answer"); // rerank branch throws, generate succeeds
+        mockRerank(null); // rerank branch throws
 
         InferenceState state = invokeInference();
 
-        assertEquals("the answer", state.answer());
         assertEquals(List.of("s1-chunk-0", "s2-chunk-0"),
-                state.reranked().orElseThrow().stream().map(RetrievedDoc::getChunkId).toList());
+                nodes.selectContextDocs(state).stream().map(RetrievedDoc::getChunkId).toList());
     }
 
     @Test

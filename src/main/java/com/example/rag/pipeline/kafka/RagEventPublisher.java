@@ -1,6 +1,5 @@
 package com.example.rag.pipeline.kafka;
 
-import com.example.rag.pipeline.graph.InferenceState;
 import com.example.rag.vectorstore.RetrievedDoc;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -14,10 +13,13 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Publishes one RagEvent per v2 inference request to Kafka. Fire-and-forget:
- * KafkaTemplate.send() never blocks on the caller's thread, and every
- * failure (build or send) is swallowed and logged — a Kafka outage or
- * serialization bug must never affect the /api/v2/query response.
+ * Publishes one RagEvent per knowledge-base answer to Kafka. Fire-and-forget:
+ * KafkaTemplate.send() never blocks on the caller's thread, and every failure
+ * (build or send) is swallowed and logged — a Kafka outage or serialization
+ * bug must never affect the /api/v2/agent response. Called from the
+ * orchestrator's generalChat node once it has synthesized the final answer
+ * from retrieved context (decoupled from any pipeline graph state, hence the
+ * primitive signature).
  */
 @Slf4j
 @Component
@@ -29,20 +31,19 @@ public class RagEventPublisher {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public void publish(InferenceState state) {
+    public void publish(String question, List<Double> queryEmbedding, List<RetrievedDoc> chunks, String answer) {
         try {
             String requestId = UUID.randomUUID().toString();
-            List<RetrievedDoc> docs = state.reranked().orElse(state.sanitized());
 
             RagEvent event = new RagEvent(
                     requestId,
                     Instant.now().toEpochMilli(),
-                    state.question(),
-                    state.queryEmbedding(),
-                    docs.stream()
+                    question,
+                    queryEmbedding,
+                    chunks.stream()
                             .map(d -> new RagEvent.ChunkRef(d.getText(), d.getSource(), d.getChunkId()))
                             .collect(Collectors.toList()),
-                    state.answer());
+                    answer);
 
             String json = objectMapper.writeValueAsString(event);
             kafkaTemplate.send(TOPIC, requestId, json).whenComplete((result, ex) -> {

@@ -4,14 +4,17 @@ import com.example.rag.agent.config.AgentProperties;
 import com.example.rag.agent.graph.AgentNodes;
 import com.example.rag.agent.graph.OrchestratorGraphFactory;
 import com.example.rag.agent.graph.OrchestratorState;
+import com.example.rag.common.service.ResponseSanitizer;
 import com.example.rag.memory.TaskStore;
 import com.example.rag.memory.Turn;
+import com.example.rag.pipeline.kafka.RagEventPublisher;
 import com.example.rag.tool.stock.StockApiTools;
 import com.example.rag.tool.stock.config.StockToolProperties;
 import com.example.rag.common.config.RagProperties;
 import com.example.rag.pipeline.service.RagPipelineService;
-import com.example.rag.pipeline.service.RagPipelineService.RagPipelineResult;
+import com.example.rag.pipeline.service.RagPipelineService.RetrieveResult;
 import com.example.rag.model.ollama.OllamaLlmCalls;
+import com.example.rag.vectorstore.RetrievedDoc;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
@@ -20,6 +23,7 @@ import org.bsc.langgraph4j.RunnableConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -40,19 +44,21 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
- * Orchestrator graph wiring tests — no Spring context, models/services
- * mocked. Locks the LLM-driven routing contract: classifier output picks
- * the sub-agent node; garbage output falls back to generalChat. The stock
- * agent's own tool-calling loop (ChatClient + ToolCallingAdvisor) always
- * bottoms out in the same mocked ChatModel.call(Prompt), since
- * ChatModelCallAdvisor — the terminal advisor ChatClient always registers —
- * simply delegates to it.
+ * Orchestrator graph wiring tests — no Spring context, models/services mocked.
+ * Locks the routing contract: the router's first intent picks the branch;
+ * knowledgeBase and stockAgent produce CONTEXT, and generalChat is the single
+ * terminal LLM node that produces the final answer for every flow (so every
+ * flow makes one final generalChat chat call). The stock agent's own
+ * tool-calling loop (ChatClient + ToolCallingAdvisor) always bottoms out in
+ * the same mocked ChatModel.call(Prompt).
  */
 class OrchestratorGraphTest {
 
     private ChatModel chatModel;
     private RagPipelineService ragPipelineService;
     private TaskStore taskStateRepository;
+    private ResponseSanitizer responseSanitizer;
+    private RagEventPublisher ragEventPublisher;
     private OrchestratorGraphFactory factory;
     private HttpServer stockServer;
     private final AtomicInteger stockServerHits = new AtomicInteger();
@@ -92,6 +98,9 @@ class OrchestratorGraphTest {
         EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
         ragPipelineService = mock(RagPipelineService.class);
         taskStateRepository = mock(TaskStore.class);
+        responseSanitizer = mock(ResponseSanitizer.class);
+        when(responseSanitizer.sanitize(any())).thenAnswer(inv -> inv.getArgument(0));
+        ragEventPublisher = mock(RagEventPublisher.class);
         OllamaLlmCalls ollamaCalls = new OllamaLlmCalls(chatModel, embeddingModel, new SimpleMeterRegistry());
         StockApiTools stockApiTools = new StockApiTools(
                 ragProps, stockToolProps, ObservationRegistry.create(), new SimpleMeterRegistry(),
@@ -99,8 +108,8 @@ class OrchestratorGraphTest {
 
         AgentNodes nodes = new AgentNodes(
                 ragProps, agentProps, stockToolProps, ObservationRegistry.create(),
-                ollamaCalls,
-                chatModel, ragPipelineService, taskStateRepository, stockApiTools);
+                ollamaCalls, chatModel, ragPipelineService, responseSanitizer, ragEventPublisher,
+                taskStateRepository, stockApiTools);
         // Real (non-Redis) in-memory checkpoint saver — these are pure
         // graph-wiring tests, no live Redis involved.
         factory = new OrchestratorGraphFactory(nodes, new org.bsc.langgraph4j.checkpoint.MemorySaver());
@@ -122,11 +131,11 @@ class OrchestratorGraphTest {
         return new ChatResponse(List.of(new Generation(new AssistantMessage(text))));
     }
 
-    /** First chat call = router; subsequent calls = sub-agent answer. */
-    private void mockChat(String routerReply, String agentReply) {
+    /** First chat call = router; last = the terminal generalChat synthesis. */
+    private void mockChat(String routerReply, String generalReply) {
         when(chatModel.call(any(Prompt.class)))
                 .thenReturn(chatResponse(routerReply))
-                .thenReturn(chatResponse(agentReply));
+                .thenReturn(chatResponse(generalReply));
     }
 
     private OrchestratorState invoke(String question) throws Exception {
@@ -143,16 +152,25 @@ class OrchestratorGraphTest {
     }
 
     @Test
+    void directGeneralFlowAnswersViaGeneralChat() throws Exception {
+        // router -> GENERAL routes straight to generalChat: router call + generalChat call.
+        mockChat("GENERAL", "Hello again!");
+
+        OrchestratorState state = invoke("how are you?");
+
+        assertEquals("GENERAL", state.intent());
+        assertEquals("general", state.agentUsed());
+        assertEquals("Hello again!", state.answer());
+        verify(chatModel, times(2)).call(any(Prompt.class));
+        verify(ragEventPublisher, never()).publish(any(), any(), any(), any());
+    }
+
+    @Test
     void nonEmptyRecentTurnsSurviveGraphStateCloning() throws Exception {
         // Regression test for a real production NotSerializableException:
         // CompiledGraph.cloneState() clones OrchestratorState via plain Java
-        // serialization (ObjectStreamStateSerializer, the LangGraph4j
-        // default) on every node transition — independent of
-        // RedisCheckpointSaver's own Jackson-based serialization, which only
-        // covers the Redis path. Every other test here passes an EMPTY
-        // recentTurns list, which serializes fine regardless of element type
-        // (nothing inside it to fail on) — only a real, non-empty list with
-        // actual Turn objects exercises this.
+        // serialization on every node transition. Only a real, non-empty
+        // recentTurns list with actual Turn objects exercises this.
         mockChat("GENERAL", "Hello again!");
         List<Turn> history = List.of(
                 new Turn(Turn.ROLE_USER, "hi", 1L),
@@ -165,55 +183,52 @@ class OrchestratorGraphTest {
     }
 
     @Test
-    void stocksIntentRoutesToStockAgent() throws Exception {
-        mockChat("STOCKS", "Tata Steel is trading at ...");
+    void stocksIntentRoutesToStockAgentThenGeneralChat() throws Exception {
+        // router -> STOCKS -> stockAgent (plain answer, no tools) -> generalChat synth.
+        when(chatModel.call(any(Prompt.class)))
+                .thenReturn(chatResponse("STOCKS"))
+                .thenReturn(chatResponse("Tata Steel is trading at 100."))   // stock agent answer
+                .thenReturn(chatResponse("Tata Steel is at 100 today."));    // generalChat synthesis
 
         OrchestratorState state = invoke("What is the price of Tata Steel?");
 
         assertEquals("STOCKS", state.intent());
-        assertEquals("stock", state.agentUsed());
-        assertEquals("Tata Steel is trading at ...", state.answer());
-        verify(ragPipelineService, never()).answerQuestion(any());
+        assertEquals("stock", state.agentUsed(), "agentUsed reflects the routed sub-agent, not generalChat");
+        assertEquals("Tata Steel is at 100 today.", state.answer());
+        verify(ragPipelineService, never()).retrieveContext(any());
         verify(taskStateRepository).running("req-1", "STOCKS", "stock");
+        verify(ragEventPublisher, never()).publish(any(), any(), any(), any());
+        verify(chatModel, times(3)).call(any(Prompt.class));
     }
 
     @Test
-    void stockAgentExecutesToolThenLoopsBackForFinalAnswer() throws Exception {
-        // router -> STOCKS, then the model requests a real tool call,
-        // ToolCallingAdvisor executes it against the embedded HTTP server
-        // and loops back internally, and the model's SECOND round gets the
-        // final text answer — this is Spring AI's own tool-calling loop,
-        // not a hand-rolled cycle. searchStockSymbol itself makes ONE more
-        // chatModel call of its own (ticker resolution, via the same
-        // underlying ChatModel/OllamaLlmCalls — StockApiTools doesn't go
-        // through ChatClient/advisors for that), so the full sequence is:
-        // router, tool-call round, ticker resolution, final answer round.
+    void stockAgentExecutesToolThenGeneralChatSynthesizes() throws Exception {
+        // router(1); stock round 1 -> tool call(2); searchStockSymbol ticker
+        // resolution(3); stock round 2 -> final(4); terminal generalChat(5).
         when(chatModel.call(any(Prompt.class)))
                 .thenReturn(chatResponse("STOCKS"))
                 .thenReturn(toolCallResponse("searchStockSymbol", "{\"query\":\"trending NSE stocks\"}"))
                 .thenReturn(chatResponse("AAPL"))
-                .thenReturn(chatResponse("Tata Steel and Infosys are trending today."));
+                .thenReturn(chatResponse("Tata Steel and Infosys are trending today."))
+                .thenReturn(chatResponse("Trending: Tata Steel and Infosys."));
 
         OrchestratorState state = invoke("What's trending on NSE?");
 
         assertEquals("stock", state.agentUsed());
-        assertEquals("Tata Steel and Infosys are trending today.", state.answer());
+        assertEquals("Trending: Tata Steel and Infosys.", state.answer());
         assertEquals(1, stockServerHits.get(), "the tool must actually have been executed once");
-        verify(chatModel, times(4)).call(any(Prompt.class));
+        verify(chatModel, times(5)).call(any(Prompt.class));
         verify(taskStateRepository).incrementToolCalls("req-1");
     }
 
     @Test
     void stockAgentStopsAtIterationCapWhenModelKeepsRequestingTools() throws Exception {
-        // Every response requests another tool call — the loop must not run
-        // forever; StockLoopCapAdvisor must short-circuit it after
-        // AgentNodes.STOCK_MAX_ITERATIONS raw model calls and still return
-        // SOME answer rather than hanging/erroring. Since every stubbed
-        // response after the router is a tool-call response, the blanket
-        // stub also answers searchStockSymbol's own ticker-resolution call
-        // with a tool-call message — OllamaLlmCalls.chat() reads that as
-        // blank text, and resolveStockId() falls back to the raw query, so
-        // it never breaks the loop.
+        // Every response after the router requests another tool call — the loop
+        // must not run forever; StockLoopCapAdvisor short-circuits it after
+        // StockLoopCapAdvisor.MAX_ITERATIONS (4) raw model calls. (The blanket
+        // tool-call stub also answers searchStockSymbol's own ticker-resolution
+        // and the terminal generalChat call with tool-call messages, which read
+        // as blank text — fine, this test locks the CAP, not the answer text.)
         when(chatModel.call(any(Prompt.class)))
                 .thenReturn(chatResponse("STOCKS"))
                 .thenAnswer(invocation -> toolCallResponse("searchStockSymbol", "{\"query\":\"trending NSE stocks\"}"));
@@ -221,83 +236,94 @@ class OrchestratorGraphTest {
         OrchestratorState state = invoke("What's trending on NSE?");
 
         assertEquals("stock", state.agentUsed());
-        assertNotNull(state.answer());
-        assertFalse(state.answer().isBlank());
-        // router(1) + AgentNodes.STOCK_MAX_ITERATIONS (4) tool-loop rounds,
-        // each of the 4 followed by one searchStockSymbol ticker-resolution
-        // call = 1 + 4 + 4 = 9. The cap advisor short-circuits the 5th
-        // tool-loop round itself (no model call, no tool execution).
-        verify(chatModel, times(9)).call(any(Prompt.class));
+        // router(1) + 4 tool-loop rounds × (model + ticker-resolution) = 1 + 8 = 9,
+        // + terminal generalChat(1) = 10. The cap short-circuits the 5th round.
+        verify(chatModel, times(10)).call(any(Prompt.class));
         verify(taskStateRepository, times(4)).incrementToolCalls("req-1");
-        assertEquals(4, stockServerHits.get(), "exactly STOCK_MAX_ITERATIONS tool executions, no more");
+        assertEquals(4, stockServerHits.get(), "exactly MAX_ITERATIONS tool executions, no more");
     }
 
     @Test
-    void stockAgentReroutesToKnowledgeBaseWhenOutOfDomain() throws Exception {
-        // router -> STOCKS, but the model itself decides mid-answer that
-        // this isn't a stock question and hands off via the REROUTE
-        // sentinel — the graph must follow that handoff to knowledgeBase
-        // rather than returning the stock agent's own (redirecting) answer.
+    void knowledgeBaseIntentRetrievesContextThenGeneralChatAnswers() throws Exception {
         when(chatModel.call(any(Prompt.class)))
-                .thenReturn(chatResponse("STOCKS"))
-                .thenReturn(chatResponse("This isn't something I can help with.\nREROUTE: KNOWLEDGE_BASE"));
-        when(ragPipelineService.answerQuestion("What does the manual say about returns policy?"))
-                .thenReturn(new RagPipelineResult("the manual says 30 days", List.of()));
-
-        OrchestratorState state = invoke("What does the manual say about returns policy?");
-
-        assertEquals("knowledge-base", state.agentUsed());
-        assertEquals("the manual says 30 days", state.answer());
-        assertEquals(1, state.rerouteCount());
-        assertTrue(state.handoffIntent().isEmpty(), "handoffIntent must be cleared once the handoff completes");
-        verify(chatModel, times(2)).call(any(Prompt.class));
-    }
-
-    @Test
-    void rerouteCapPreventsSecondHandoff() throws Exception {
-        // First reroute (GENERAL -> STOCKS) is honored; the second sub-agent
-        // ALSO tries to reroute (STOCKS -> GENERAL again), but
-        // AgentNodes.MAX_REROUTES (1) must refuse it — the graph ends on the
-        // second agent's own answer instead of ping-ponging forever.
-        when(chatModel.call(any(Prompt.class)))
-                .thenReturn(chatResponse("GENERAL"))
-                .thenReturn(chatResponse("Let's talk stocks instead.\nREROUTE: STOCKS"))
-                .thenReturn(chatResponse("Actually, let me redirect this.\nREROUTE: GENERAL"));
-
-        OrchestratorState state = invoke("hi");
-
-        assertEquals("stock", state.agentUsed(), "second reroute must be refused once MAX_REROUTES is hit");
-        assertEquals("Actually, let me redirect this.", state.answer());
-        assertEquals(1, state.rerouteCount(), "only the first handoff counts");
-        assertTrue(state.handoffIntent().isEmpty());
-        verify(chatModel, times(3)).call(any(Prompt.class));
-    }
-
-    @Test
-    void knowledgeBaseIntentRoutesToRagPipeline() throws Exception {
-        mockChat("KNOWLEDGE_BASE", "unused");
-        when(ragPipelineService.answerQuestion("What does the doc say?"))
-                .thenReturn(new RagPipelineResult("the doc says X", List.of()));
+                .thenReturn(chatResponse("KNOWLEDGE_BASE"))   // router
+                .thenReturn(chatResponse("The doc says X."));  // generalChat synthesis
+        when(ragPipelineService.retrieveContext("What does the doc say?"))
+                .thenReturn(new RetrieveResult(List.of(0.1, 0.2),
+                        List.of(new RetrievedDoc("the manual says 30 days", "s1", "c1"))));
 
         OrchestratorState state = invoke("What does the doc say?");
 
         assertEquals("KNOWLEDGE_BASE", state.intent());
         assertEquals("knowledge-base", state.agentUsed());
-        assertEquals("the doc says X", state.answer());
-        // router call only — the KB answer comes from the pipeline, not chatModel
-        verify(chatModel, times(1)).call(any(Prompt.class));
+        assertEquals("The doc says X.", state.answer());
+        // router + generalChat = 2 calls; the KB node itself makes no LLM call.
+        verify(chatModel, times(2)).call(any(Prompt.class));
+        verify(ragPipelineService).retrieveContext("What does the doc say?");
+        // KB flow publishes exactly one RagEvent with the retrieved context + final answer.
+        verify(ragEventPublisher).publish(eq("What does the doc say?"), eq(List.of(0.1, 0.2)), anyList(),
+                eq("The doc says X."));
     }
 
     @Test
-    void garbageClassifierOutputFallsBackToGeneral() throws Exception {
-        mockChat("well, maybe stocks? or not, hard to say!", "Hello! How can I help?");
+    void knowledgeBaseContextIsThreadedIntoGeneralChatPrompt() throws Exception {
+        when(chatModel.call(any(Prompt.class)))
+                .thenReturn(chatResponse("KNOWLEDGE_BASE"))
+                .thenReturn(chatResponse("grounded answer"));
+        when(ragPipelineService.retrieveContext(any()))
+                .thenReturn(new RetrieveResult(List.of(0.1),
+                        List.of(new RetrievedDoc("SECRET_CONTEXT_MARKER", "s1", "c1"))));
 
-        OrchestratorState state = invoke("hi there");
+        invoke("what does it say?");
 
-        // "stocks" appears lowercase but parse() uppercases — STOCKS matches.
-        // Use truly garbage output instead:
-        // (this asserts the real behavior: parse is lenient on exact names)
-        assertEquals("STOCKS", state.intent());
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(chatModel, times(2)).call(captor.capture());
+        // The 2nd call is generalChat — its user message must carry the retrieved context.
+        String generalUserMsg = captor.getAllValues().get(1).getInstructions().get(1).getText();
+        assertTrue(generalUserMsg.contains("Reference context:"), generalUserMsg);
+        assertTrue(generalUserMsg.contains("SECRET_CONTEXT_MARKER"), generalUserMsg);
+    }
+
+    @Test
+    void routerEmitsMultipleIntentsAndRoutesOnTheFirst() throws Exception {
+        // Multi-line router output: first line drives routing, the full list is saved.
+        when(chatModel.call(any(Prompt.class)))
+                .thenReturn(chatResponse("STOCKS\nGENERAL"))
+                .thenReturn(chatResponse("stock answer"))
+                .thenReturn(chatResponse("final answer"));
+
+        OrchestratorState state = invoke("stocks and small talk");
+
+        assertEquals("STOCKS", state.intent(), "routes on the first intent");
+        assertEquals(List.of("STOCKS", "GENERAL"), state.intents());
+        assertEquals("stock", state.agentUsed());
+    }
+
+    @Test
+    void agentUsedIsResetBetweenTurnsSoAKbTurnDoesNotLeakIntoALaterGeneralTurn() throws Exception {
+        // Regression guard for the per-turn reset in route(): a KB turn sets
+        // agentUsed="knowledge-base"; a following direct-GENERAL turn on the same
+        // thread must NOT inherit it (which would wrongly re-publish a RagEvent
+        // with stale context). Uses one graph + one threadId so the checkpoint's
+        // initialState merge carries the prior turn's final state forward.
+        when(ragPipelineService.retrieveContext("kb question"))
+                .thenReturn(new RetrieveResult(List.of(0.1), List.of(new RetrievedDoc("kb doc", "s", "c"))));
+        when(chatModel.call(any(Prompt.class)))
+                .thenReturn(chatResponse("KNOWLEDGE_BASE"))   // turn 1 router
+                .thenReturn(chatResponse("kb answer"))        // turn 1 generalChat
+                .thenReturn(chatResponse("GENERAL"))          // turn 2 router
+                .thenReturn(chatResponse("just chatting"));   // turn 2 generalChat
+
+        CompiledGraph<OrchestratorState> graph = factory.buildOrchestratorGraph();
+        RunnableConfig cfg = RunnableConfig.builder().threadId("conv-x").build();
+
+        graph.invoke(Map.of("question", "kb question", "requestId", "r1", "recentTurns", List.of()), cfg);
+        OrchestratorState turn2 = graph.invoke(
+                Map.of("question", "hi there", "requestId", "r2", "recentTurns", List.of()), cfg).orElseThrow();
+
+        assertEquals("general", turn2.agentUsed(), "agentUsed must reset, not leak 'knowledge-base'");
+        // Only the KB turn publishes; the GENERAL turn must not.
+        verify(ragEventPublisher, times(1)).publish(any(), any(), any(), any());
     }
 
     @Test

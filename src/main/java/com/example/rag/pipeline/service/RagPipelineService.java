@@ -2,7 +2,7 @@ package com.example.rag.pipeline.service;
 
 import com.example.rag.pipeline.graph.IngestState;
 import com.example.rag.pipeline.graph.InferenceState;
-import com.example.rag.pipeline.kafka.RagEventPublisher;
+import com.example.rag.pipeline.graph.RagPipelineNodes;
 import com.example.rag.vectorstore.RetrievedDoc;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -15,27 +15,33 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 
-/** Facade over the compiled pipeline graphs (LangGraph4j ingest + inference). */
+/**
+ * Facade over the compiled pipeline graphs (LangGraph4j ingest + inference).
+ * The inference graph now stops at retrieval/rerank — no generation, no Kafka.
+ * The orchestrator's generalChat node turns the retrieved context into the
+ * final answer and publishes the RagEvent.
+ */
 @Slf4j
 @Service
 public class RagPipelineService {
 
     private final CompiledGraph<IngestState> ingestGraph;
     private final CompiledGraph<InferenceState> inferenceGraph;
+    private final RagPipelineNodes nodes;
     private final ObservationRegistry observationRegistry;
-    private final RagEventPublisher ragEventPublisher;
 
     public RagPipelineService(@Qualifier("ingestGraph") CompiledGraph<IngestState> ingestGraph,
                         @Qualifier("inferenceGraph") CompiledGraph<InferenceState> inferenceGraph,
-                        ObservationRegistry observationRegistry,
-                        RagEventPublisher ragEventPublisher) {
+                        RagPipelineNodes nodes,
+                        ObservationRegistry observationRegistry) {
         this.ingestGraph = ingestGraph;
         this.inferenceGraph = inferenceGraph;
+        this.nodes = nodes;
         this.observationRegistry = observationRegistry;
-        this.ragEventPublisher = ragEventPublisher;
     }
 
-    public record RagPipelineResult(String answer, List<RetrievedDoc> sources) {}
+    /** Retrieved context (no generated answer): the query embedding + the final selected chunks. */
+    public record RetrieveResult(List<Double> queryEmbedding, List<RetrievedDoc> docs) {}
 
     /** Chunk, embed, and store raw text. @return number of chunks ingested. */
     public int ingestContextText(String text, String source) {
@@ -47,15 +53,12 @@ public class RagPipelineService {
                         .orElseThrow(() -> new IllegalStateException("Ingest graph produced no final state")));
     }
 
-    /** Hybrid RAG + rerank over already-stored docs via the inference graph. */
-    public RagPipelineResult answerQuestion(String question) {
-        return Observation.createNotStarted("rag2.answer", observationRegistry)
+    /** Hybrid retrieval + optional rerank over already-stored docs. Returns context for generalChat to answer from. */
+    public RetrieveResult retrieveContext(String question) {
+        return Observation.createNotStarted("rag2.retrieve", observationRegistry)
                 .observe(() -> inferenceGraph
                         .invoke(Map.of("question", question), RunnableConfig.builder().build())
-                        .map(state -> {
-                            ragEventPublisher.publish(state);
-                            return new RagPipelineResult(state.answer(), state.reranked().orElse(List.of()));
-                        })
+                        .map(state -> new RetrieveResult(state.queryEmbedding(), nodes.selectContextDocs(state)))
                         .orElseThrow(() -> new IllegalStateException("Inference graph produced no final state")));
     }
 }

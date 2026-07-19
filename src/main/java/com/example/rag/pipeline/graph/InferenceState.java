@@ -8,8 +8,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * State flowing through the v2 inference graph:
- * embedQuery → retrieve → sanitize → (rerank?) → generate.
+ * State flowing through the v2 retrieval graph:
+ * embedQuery → retrieve → sanitize → (rerank?). Retrieval-only — generation
+ * happens in the orchestrator's generalChat node, so there is no answer here.
  */
 public class InferenceState extends AgentState {
 
@@ -33,12 +34,8 @@ public class InferenceState extends AgentState {
         return this.<List<RetrievedDoc>>value("sanitized").orElse(List.of());
     }
 
-    /** Present only after the rerank node (or generate's fallback truncation) ran. */
+    /** Present only after the rerank node ran; absent on the skip path (see RagPipelineNodes.selectContextDocs). */
     public Optional<List<RetrievedDoc>> reranked() {
         return this.value("reranked");
-    }
-
-    public String answer() {
-        return this.<String>value("answer").orElse("");
     }
 }
