@@ -4,9 +4,9 @@ pipeline {
     agent any
 
     options {
-        // Makes checkout conditional (see the 'Checkout' stage below) — declarative
-        // pipelines checkout SCM implicitly before the first stage otherwise, with
-        // no way to skip it.
+        // We do our own checkout (see the 'Checkout' stage below) so it can pin to
+        // COMMIT_ID — declarative pipelines checkout SCM implicitly before the first
+        // stage otherwise, which only ever checks out the branch head, not a pinned commit.
         skipDefaultCheckout()
     }
 
@@ -16,10 +16,10 @@ pipeline {
             defaultValue: "${env.BUILD_NUMBER}",
             description: 'Docker image tag / build identifier'
         )
-        booleanParam(
-            name: 'DO_CHECKOUT',
-            defaultValue: true,
-            description: 'Check out source from git before building. Uncheck to reuse whatever is already in the workspace (e.g. from a previous run) — build will fail if the workspace is empty.'
+        string(
+            name: 'COMMIT_ID',
+            defaultValue: '',
+            description: 'Exact commit SHA to build. Leave blank to build the branch head (the branch selected for this job).'
         )
         booleanParam(
             name: 'TRIGGER_CD',
@@ -35,6 +35,11 @@ pipeline {
 
     environment {
         FULL_IMAGE = "myapp:${params.BUILD_ID}"
+        // Referenced via $COMMIT_ID (shell env var) in the Checkout stage, never
+        // Groovy-interpolated into a sh string — params.COMMIT_ID is free-text
+        // build input, and string-interpolating untrusted input into a shell
+        // command is a command-injection risk.
+        COMMIT_ID = "${params.COMMIT_ID}"
     }
 
     tools {
@@ -44,9 +49,31 @@ pipeline {
     stages {
 
         stage('Checkout') {
-            when { expression { params.DO_CHECKOUT } }
             steps {
                 checkout scm
+                script {
+                    if (params.COMMIT_ID?.trim()) {
+                        // Validate before it ever reaches a shell command — COMMIT_ID
+                        // is free-text build input.
+                        if (!(params.COMMIT_ID ==~ /[0-9a-fA-F]{7,40}/)) {
+                            error "COMMIT_ID '${params.COMMIT_ID}' doesn't look like a git commit SHA (7-40 hex chars)."
+                        }
+                    }
+                }
+                // --unshallow guards against a shallow-clone job config not having the
+                // pinned commit's history available; falls back to a plain fetch --all
+                // if the repo is already a full clone (--unshallow errors on those,
+                // which isn't a real failure). $COMMIT_ID is a shell env var here (see
+                // the environment block), never Groovy-interpolated into this string.
+                sh '''
+                    if [ -n "$COMMIT_ID" ]; then
+                        git fetch --unshallow --tags -q || git fetch --all --tags -q
+                        git checkout "$COMMIT_ID"
+                        echo "Pinned to commit: $(git rev-parse HEAD)"
+                    else
+                        echo "Building branch head: $(git rev-parse HEAD)"
+                    fi
+                '''
             }
         }
 
