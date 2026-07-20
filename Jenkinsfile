@@ -55,6 +55,7 @@ pipeline {
                 echo "BUILD_ID : ${params.BUILD_ID}"
                 sh 'docker info'
                 sh 'ls -la'
+                sh 'git rev-parse HEAD 2>/dev/null || echo no-git-info'
             }
         }
 
