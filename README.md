@@ -76,7 +76,7 @@ Edit `src/main/resources/application.yml`:
 spring-rag/
 ├── pom.xml
 ├── src/main/
-│   ├── java/com/example/rag/
+│   ├── java/com/mycompany/orchestrator/
 │   │   ├── Application.java
 │   │   ├── config/RagProperties.java
 │   │   ├── ollama/OllamaClient.java
@@ -89,5 +89,5 @@ spring-rag/
 │       ├── application.yml
 │       └── static/index.html
 └── src/test/
-    └── java/com/example/rag/ApplicationTests.java
+    └── java/com/mycompany/orchestrator/ApplicationTests.java
 ```

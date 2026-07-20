@@ -1,0 +1,362 @@
+package com.mycompany.orchestrator.vectorstore.weaviate;
+
+import com.mycompany.orchestrator.common.config.RagProperties;
+import com.mycompany.orchestrator.common.service.ChunkingService.Chunk;
+import com.mycompany.orchestrator.vectorstore.DocumentStore;
+import com.mycompany.orchestrator.vectorstore.RetrievedDoc;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * Weaviate integration via REST + GraphQL.
+ *
+ * Ingest  → POST /v1/batch/objects  (stores text + metadata + Ollama vector)
+ * Search  → POST /v1/graphql         (hybrid BM25 + vector query)
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class WeaviateDocumentStore implements DocumentStore {
+
+    private final RagProperties props;
+    private final ObservationRegistry observationRegistry;
+    private final MeterRegistry meterRegistry;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final HttpClient httpClient = HttpClient.newHttpClient();
+
+    // -------------------------------------------------------------------------
+    // Schema bootstrap
+    // -------------------------------------------------------------------------
+
+    private static final List<String[]> REQUIRED_PROPERTIES = List.of(
+            new String[]{"text",     "text"},
+            new String[]{"source",   "text"},
+            new String[]{"chunk_id", "text"}
+    );
+
+    @PostConstruct
+    public void ensureCollectionExists() {
+        String collection = props.getWeaviate().getCollection();
+        String baseUrl    = props.getWeaviate().getBaseUrl();
+        try {
+            String schemaUrl = baseUrl + "/v1/schema/" + collection;
+            int status = getStatus(schemaUrl);
+            if (status == 200) {
+                log.info("Weaviate collection '{}' already exists — checking properties", collection);
+                ensurePropertiesExist(schemaUrl, collection, baseUrl);
+                return;
+            }
+
+            String schema = String.format("""
+                    {
+                      "class": "%s",
+                      "vectorizer": "none",
+                      "properties": [
+                        {"name": "text",     "dataType": ["text"]},
+                        {"name": "source",   "dataType": ["text"]},
+                        {"name": "chunk_id", "dataType": ["text"]}
+                      ]
+                    }
+                    """, collection);
+
+            post(baseUrl + "/v1/schema", schema);
+            log.info("Created Weaviate collection '{}'", collection);
+        } catch (Exception e) {
+            log.warn("Could not ensure Weaviate collection '{}' exists: {}", collection, e.getMessage());
+        }
+    }
+
+    private void ensurePropertiesExist(String schemaUrl, String collection, String baseUrl) throws Exception {
+        HttpResponse<String> resp = get(schemaUrl);
+        if (resp.statusCode() != 200) {
+            throw new RuntimeException(
+                    "Weaviate request to " + schemaUrl +
+                    " failed with status " + resp.statusCode() +
+                    ": " + resp.body());
+        }
+        JsonNode classSchema = objectMapper.readTree(resp.body());
+
+        java.util.Set<String> existing = new java.util.HashSet<>();
+        for (JsonNode prop : classSchema.path("properties")) {
+            existing.add(prop.path("name").asText());
+        }
+        log.info("Weaviate collection '{}' has properties: {}", collection, existing);
+
+        for (String[] prop : REQUIRED_PROPERTIES) {
+            if (!existing.contains(prop[0])) {
+                String body = String.format(
+                        "{\"name\": \"%s\", \"dataType\": [\"%s\"]}", prop[0], prop[1]);
+                try {
+                    post(baseUrl + "/v1/schema/" + collection + "/properties", body);
+                    log.info("Added missing property '{}' to collection '{}'", prop[0], collection);
+                } catch (RuntimeException e) {
+                    // Another instance may have added it concurrently — Weaviate
+                    // answers 422 "already in use" for an existing property.
+                    if (e.getMessage() != null && e.getMessage().contains("already in use")) {
+                        log.info("Property '{}' already exists on collection '{}'", prop[0], collection);
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Ingest
+    // -------------------------------------------------------------------------
+
+    /** Batch-insert chunks into Weaviate together with their pre-computed embedding vectors. */
+    @Override
+    public void ingestChunks(List<Chunk> chunks, List<List<Double>> embeddings) {
+        if (chunks.isEmpty()) return;
+        if (embeddings.size() != chunks.size()) {
+            throw new IllegalArgumentException(
+                    "chunks.size()=" + chunks.size() +
+                    " but embeddings.size()=" + embeddings.size());
+        }
+        Observation.createNotStarted("weaviate.ingest", observationRegistry)
+                .lowCardinalityKeyValue("collection", props.getWeaviate().getCollection())
+                .observe(() -> doIngestChunks(chunks, embeddings));
+        meterRegistry.counter("weaviate.ingest.chunks").increment(chunks.size());
+    }
+
+    private void doIngestChunks(List<Chunk> chunks, List<List<Double>> embeddings) {
+        String collection = props.getWeaviate().getCollection();
+        String url = props.getWeaviate().getBaseUrl() + "/v1/batch/objects";
+        log.info("[Weaviate] ingestChunks() → POST {} | collection={} | chunks={}", url, collection, chunks.size());
+
+        try {
+            String textField  = props.getWeaviate().getTextField();
+
+            ArrayNode objectsArray = objectMapper.createArrayNode();
+
+            for (int i = 0; i < chunks.size(); i++) {
+                Chunk c        = chunks.get(i);
+                List<Double> v = embeddings.get(i);
+
+                ObjectNode propsNode = objectMapper.createObjectNode();
+                propsNode.put(textField,   c.getText());
+                propsNode.put("source",    c.getSource());
+                propsNode.put("chunk_id",  c.getChunkId());
+
+                ArrayNode vectorNode = objectMapper.createArrayNode();
+                for (Double d : v) {
+                    vectorNode.add(d);
+                }
+
+                ObjectNode obj = objectMapper.createObjectNode();
+                obj.put("class", collection);
+                obj.set("properties", propsNode);
+                obj.set("vector", vectorNode);
+
+                objectsArray.add(obj);
+                log.debug("[Weaviate] ingestChunks() chunk[{}] chunkId={} vectorDims={}", i, c.getChunkId(), v.size());
+            }
+
+            ObjectNode batchBody = objectMapper.createObjectNode();
+            batchBody.set("objects", objectsArray);
+
+            String responseBody = post(url, objectMapper.writeValueAsString(batchBody));
+
+            // Parse per-object results — Weaviate returns 200 OK even when individual objects fail
+            int succeeded = 0, failed = 0;
+            JsonNode batchResults = objectMapper.readTree(responseBody);
+            if (batchResults.isArray()) {
+                for (JsonNode obj : batchResults) {
+                    String status = obj.path("result").path("status").asText("UNKNOWN");
+                    if ("SUCCESS".equalsIgnoreCase(status)) {
+                        succeeded++;
+                    } else {
+                        failed++;
+                        JsonNode errors = obj.path("result").path("errors").path("error");
+                        log.error("[Weaviate] ingestChunks() object FAILED — status={} errors={}", status, errors);
+                    }
+                }
+            }
+            log.info("[Weaviate] ingestChunks() ← succeeded={} failed={} total={}", succeeded, failed, chunks.size());
+            if (succeeded == 0 && failed > 0) {
+                throw new RuntimeException("All " + failed + " objects failed to insert into Weaviate — check logs for errors");
+            }
+
+        } catch (RuntimeException re) {
+            log.error("[Weaviate] ingestChunks() failed: {}", re.getMessage(), re);
+            throw re;
+        } catch (Exception e) {
+            log.error("[Weaviate] ingestChunks() exception: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to ingest chunks into Weaviate", e);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Hybrid search
+    // -------------------------------------------------------------------------
+
+    /**
+     * Perform a hybrid (BM25 + vector) search using the Weaviate GraphQL API.
+     *
+     * @param query          Raw text query (used for BM25 side of hybrid).
+     * @param queryEmbedding Pre-computed query vector (used for vector side).
+     * @return Up to {@code rag.retrieval.top-k} matched documents.
+     */
+    @Override
+    public List<RetrievedDoc> hybridSearch(String query, List<Double> queryEmbedding) {
+        List<RetrievedDoc> docs = Observation.createNotStarted("weaviate.search", observationRegistry)
+                .lowCardinalityKeyValue("collection", props.getWeaviate().getCollection())
+                .observe(() -> doHybridSearch(query, queryEmbedding));
+        meterRegistry.summary("weaviate.search.results").record(docs.size());
+        return docs;
+    }
+
+    private List<RetrievedDoc> doHybridSearch(String query, List<Double> queryEmbedding) {
+        int    topK       = props.getRetrieval().getTopK();
+        double alpha      = props.getRetrieval().getHybridAlpha();
+        String collection = props.getWeaviate().getCollection();
+        String textField  = props.getWeaviate().getTextField();
+        String url        = props.getWeaviate().getBaseUrl() + "/v1/graphql";
+
+        log.info("[Weaviate] hybridSearch() → POST {} | collection={} topK={} alpha={} queryLen={} vectorDims={}",
+                url, collection, topK, alpha, query.length(), queryEmbedding.size());
+
+        try {
+            String vectorStr = queryEmbedding.stream()
+                    .map(d -> Double.toString(d))
+                    .collect(Collectors.joining(", "));
+
+            String graphql = String.format("""
+                    {
+                      Get {
+                        %s(
+                          hybrid: { query: "%s", alpha: %.4f, vector: [%s] }
+                          limit: %d
+                        ) {
+                          %s
+                          source
+                          chunk_id
+                        }
+                      }
+                    }
+                    """,
+                    collection,
+                    escapeGql(query),
+                    alpha,
+                    vectorStr,
+                    topK,
+                    textField);
+
+            ObjectNode body = objectMapper.createObjectNode();
+            body.put("query", graphql);
+
+            String responseBody = post(url, objectMapper.writeValueAsString(body));
+            log.debug("[Weaviate] hybridSearch() ← raw response: {}", responseBody);
+
+            JsonNode root = objectMapper.readTree(responseBody);
+
+            // Surface any GraphQL-level errors before attempting to read results
+            JsonNode errors = root.path("errors");
+            if (!errors.isMissingNode() && errors.isArray() && !errors.isEmpty()) {
+                log.error("[Weaviate] hybridSearch() GraphQL errors: {}", errors);
+                throw new RuntimeException("Weaviate GraphQL errors: " + errors);
+            }
+
+            JsonNode results = root.path("data").path("Get").path(collection);
+            if (results.isMissingNode()) {
+                log.warn("[Weaviate] hybridSearch() response missing data.Get.{} — full response: {}", collection, responseBody);
+            }
+
+            List<RetrievedDoc> docs = new ArrayList<>();
+            for (JsonNode n : results) {
+                String text    = n.path(textField).asText("");
+                String source  = n.path("source").asText("");
+                String chunkId = n.path("chunk_id").asText("");
+                docs.add(new RetrievedDoc(text, source, chunkId));
+            }
+            log.info("[Weaviate] hybridSearch() ← returned {} docs", docs.size());
+            return docs;
+
+        } catch (RuntimeException re) {
+            log.error("[Weaviate] hybridSearch() failed: {}", re.getMessage(), re);
+            throw re;
+        } catch (Exception e) {
+            log.error("[Weaviate] hybridSearch() exception: {}", e.getMessage(), e);
+            throw new RuntimeException("Weaviate hybrid search failed", e);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    private String post(String url, String jsonBody) throws Exception {
+        log.debug("[Weaviate] POST {} | bodyLen={}", url, jsonBody.length());
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json");
+
+        String apiKey = props.getWeaviate().getApiKey();
+        if (apiKey != null && !apiKey.isBlank()) {
+            builder.header("Authorization", "Bearer " + apiKey);
+        }
+
+        HttpRequest request = builder
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                .build();
+
+        HttpResponse<String> response =
+                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        log.debug("[Weaviate] POST {} ← status={}", url, response.statusCode());
+
+        if (response.statusCode() >= 300) {
+            log.error("[Weaviate] POST {} failed | status={} | body={}", url, response.statusCode(), response.body());
+            throw new RuntimeException(
+                    "Weaviate request to " + url +
+                    " failed with status " + response.statusCode() +
+                    ": " + response.body());
+        }
+        return response.body();
+    }
+
+    private HttpResponse<String> get(String url) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .GET();
+
+        String apiKey = props.getWeaviate().getApiKey();
+        if (apiKey != null && !apiKey.isBlank()) {
+            builder.header("Authorization", "Bearer " + apiKey);
+        }
+
+        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private int getStatus(String url) throws Exception {
+        return get(url).statusCode();
+    }
+
+    /** Minimal escaping for inline GraphQL string values. */
+    private String escapeGql(String s) {
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", " ")
+                .replace("\r", "");
+    }
+}

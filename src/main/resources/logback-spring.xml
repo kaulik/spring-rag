@@ -16,7 +16,7 @@
     <captureExperimentalAttributes>true</captureExperimentalAttributes>
   </appender>
 
-  <logger name="com.example.rag" level="INFO"/>
+  <logger name="com.mycompany.orchestrator" level="INFO"/>
   <logger name="org.springframework.web" level="WARN"/>
 
   <root level="INFO">

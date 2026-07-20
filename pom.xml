@@ -5,10 +5,10 @@
                              https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>com.example</groupId>
-  <artifactId>spring-rag</artifactId>
+  <groupId>com.mycompany</groupId>
+  <artifactId>graph-orchestrator</artifactId>
   <version>0.0.1-SNAPSHOT</version>
-  <name>spring-rag</name>
+  <name>graph-orchestrator</name>
   <description>Hybrid RAG + Rerank with Ollama and Weaviate</description>
 
   <parent>
