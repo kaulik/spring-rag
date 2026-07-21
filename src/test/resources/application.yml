@@ -22,7 +22,7 @@ rag:
   ollama:
     base-url: http://localhost:11434
     embedding-model: nomic-embed-text
-    chat-model: llama3.2:3b
+    chat-model: llama3.2:1b #llama3.2:3b
     rerank-model: ""
     timeout-seconds: 60
   weaviate:
