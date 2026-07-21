@@ -84,9 +84,11 @@ pipeline {
             when { expression { !params.SWITCH_ONLY } }
             steps {
                 withCredentials([
-                    string(credentialsId: 'WEAVIATE_API_KEY', variable: 'WEAVIATE_API_KEY'),
-                    string(credentialsId: 'API_KEY',          variable: 'API_KEY'),
-                    string(credentialsId: 'STOCK_API_KEY',    variable: 'STOCK_API_KEY')
+                    // WEAVIATE_API_KEY / API_KEY / STOCK_API_KEY no longer injected here —
+                    // they now arrive via the config server, which reads them from Vault
+                    // (see vault/docker-compose.yml + spring-config-server's application.yml).
+                    string(credentialsId: 'CONFIG_SERVER_USERNAME', variable: 'CONFIG_SERVER_USERNAME'),
+                    string(credentialsId: 'CONFIG_SERVER_PASSWORD', variable: 'CONFIG_SERVER_PASSWORD')
                 ]) {
                     sh """
                         # Remove legacy uncolored containers from the pre-blue-green setup
@@ -109,13 +111,11 @@ pipeline {
                               --name \$NAME \
                               --hostname \$NAME \
                               -p \$PORT:8080 \
-                              -e WEAVIATE_API_KEY=\$WEAVIATE_API_KEY \
-                              -e RAG_WEAVIATE_API_KEY=\$WEAVIATE_API_KEY \
-                              -e API_KEY=\$API_KEY \
-                              -e STOCK_API_KEY=\$STOCK_API_KEY \
                               -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 \
                               -e OTEL_RESOURCE_ATTRIBUTES="service.instance.id=\$NAME,service.namespace=spring-rag,host.name=\$NAME,service.version=${params.IMAGE_TAG},deployment.color=${env.TARGET}" \
                               -e CONFIG_SERVER_URL=http://host.docker.internal:8686 \
+                              -e CONFIG_SERVER_USERNAME=\$CONFIG_SERVER_USERNAME \
+                              -e CONFIG_SERVER_PASSWORD=\$CONFIG_SERVER_PASSWORD \
                               -e SPRING_PROFILES_ACTIVE=${params.SPRING_PROFILE} \
                               -e JAVA_TOOL_OPTIONS="-Xmx768m" \
                               --add-host=host.docker.internal:host-gateway \

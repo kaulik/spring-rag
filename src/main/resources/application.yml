@@ -9,6 +9,10 @@ spring:
   cloud:
     config:
       fail-fast: true
+      # Config server now requires HTTP Basic auth (Vault-backed secrets flow
+      # through it) — no fallback, deployment must set both.
+      username: ${CONFIG_SERVER_USERNAME}
+      password: ${CONFIG_SERVER_PASSWORD}
       retry:
         max-attempts: 6
         initial-interval: 2000
