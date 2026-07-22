@@ -115,6 +115,7 @@ pipeline {
                 sh """
                     docker build \
                       --build-arg BUILD_ID=${params.BUILD_ID} \
+                      -f DockerfileSpringRag \
                       -t myapp:${params.BUILD_ID} \
                       -t myapp:latest \
                       .
